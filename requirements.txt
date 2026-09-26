@@ -11,4 +11,5 @@ pydantic-settings>=2.7.0
 cachetools>=5.5.0
 fastapi>=0.115.0
 uvicorn>=0.34.0
+gunicorn>=23.0.0
 a2wsgi>=1.10.0

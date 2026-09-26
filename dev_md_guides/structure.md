@@ -1,5 +1,5 @@
 # Codebase Architecture & Directory Dependency Graph
-_Last regenerated: 2026-09-26 08:09:19 UTC by dev-md-compactor_
+_Last regenerated: 2026-09-26 08:15:09 UTC by dev-md-compactor_
 
 ## Project Manifests & Build Tools
 - `requirements.txt`
