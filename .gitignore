@@ -9,6 +9,10 @@ temp/
 *.session
 *.session-journal
 *.log
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 .DS_Store
 Thumbs.db
 
