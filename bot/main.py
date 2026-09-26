@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Telegram Ultra Mini", lifespan=lifespan)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     """Render root endpoint for deployment health verification."""
     return {
@@ -103,7 +103,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     """Health check endpoint for Render / monitor services."""
     return {

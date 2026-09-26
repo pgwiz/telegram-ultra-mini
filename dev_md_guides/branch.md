@@ -1,13 +1,14 @@
 # Branch State & Worktree Topology
 
 - **Active Branch**: `main`
-- **HEAD Commit**: `3ed9fae` — fix(cache): resolve 'Database' object has no attribute 'pool' and align api_cache schema
+- **HEAD Commit**: `5b87607` — feat: add plain-text search fallback and native MP4 video download support
 - **Tracking Status**: Ahead 0 commits, behind 0 commits relative to origin/main
-- **Last Updated**: 2026-09-26 08:46:58 UTC
+- **Last Updated**: 2026-09-26 08:50:03 UTC
 
 ## Divergence Analysis
 
 ### Recent Commits (Local)
+- `5b87607` (2026-09-26 11:47:45 +0300): feat: add plain-text search fallback and native MP4 video download support
 - `3ed9fae` (2026-09-26 11:35:40 +0300): fix(cache): resolve 'Database' object has no attribute 'pool' and align api_cache schema
 - `811e5e9` (2026-09-26 11:28:44 +0300): feat(telegram): automatically register bot command menu on startup
 - `8df9598` (2026-09-26 11:22:57 +0300): fix(database): allow graceful fallback for sqlite:// URLs while keeping full Neon resilience
@@ -18,13 +19,7 @@
 - `18662b7` (2026-09-26 10:45:25 +0300): feat: initial release of telegram-ultra-mini pure-python bot with channel warehousing and neon postgres
 
 ### Uncommitted Working Tree State
-- `M bot/downloader.py`
-- ` M bot/handlers/download.py`
-- ` M bot/handlers/search.py`
-- ` M bot/main.py`
-- ` M bot/storage.py`
-- ` M changelog.md`
-- ` M readme.md`
+- `M bot/main.py`
 
 ## Integration Checklist
 
