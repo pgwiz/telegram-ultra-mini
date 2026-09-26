@@ -1,9 +1,13 @@
 """Configuration module for Telegram Ultra Mini."""
 
 import os
+import logging
 from pathlib import Path
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -15,6 +19,7 @@ class Settings(BaseSettings):
 
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str = Field(..., description="Bot token from @BotFather")
+    TELOXIDE_TOKEN: Optional[str] = Field(None, description="Alias from telegram-ultra")
     ADMIN_CHAT_ID: int = Field(0, description="Telegram User ID of Admin")
 
     # Storage Channel (dump channel for audio messages)
@@ -25,8 +30,9 @@ class Settings(BaseSettings):
     YTSP_API_TIMEOUT: int = Field(30, description="API HTTP timeout in seconds")
     ENABLE_API_FALLBACK: bool = Field(True, description="Fallback to local yt-dlp if API fails")
 
-    # Neon PostgreSQL Database
-    DATABASE_URL: str = Field(..., description="Neon PostgreSQL connection URI")
+    # Database (Neon PostgreSQL or SQLite)
+    DATABASE_URL: Optional[str] = Field(None, description="Database connection URI (PostgreSQL or SQLite)")
+    DATABASE_PATH: Optional[str] = Field(None, description="SQLite path if used")
     DB_POOL_MIN_SIZE: int = Field(2, description="Min asyncpg pool connections")
     DB_POOL_MAX_SIZE: int = Field(10, description="Max asyncpg pool connections")
 
@@ -46,18 +52,27 @@ class Settings(BaseSettings):
     ENABLE_MEMORY_CACHE: bool = Field(True, description="Enable RAM cache")
     MEMORY_CACHE_MAXSIZE: int = Field(2000, description="Max items in memory cache")
     MEMORY_CACHE_TTL_SECS: int = Field(3600, description="RAM cache TTL in seconds")
-    DB_METADATA_TTL_DAYS: int = Field(7, description="PostgreSQL metadata cache TTL in days")
-    DB_SEARCH_TTL_HOURS: int = Field(24, description="PostgreSQL search cache TTL in hours")
+    DB_METADATA_TTL_DAYS: int = Field(7, description="Metadata cache TTL in days")
+    DB_SEARCH_TTL_HOURS: int = Field(24, description="Search cache TTL in hours")
 
-    # Optional HTTP Server
+    # Optional HTTP Server / Render port
     ENABLE_HEALTH_SERVER: bool = Field(True, description="Run lightweight FastAPI health/metrics server")
     API_HOST: str = Field("0.0.0.0", description="API server host")
-    API_PORT: int = Field(8080, description="API server port")
+    API_PORT: int = Field(default_factory=lambda: int(os.environ.get("PORT", "8080")), description="API server port")
 
 
 # Singleton instance
 settings = Settings()
 
-# Ensure directories exist
-Path(settings.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
-Path(settings.MTPROTO_SESSION_PATH).parent.mkdir(parents=True, exist_ok=True)
+# Safe directory creation with fallback for cross-platform / Render paths
+try:
+    Path(settings.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    logger.warning(f"Could not create DOWNLOAD_DIR={settings.DOWNLOAD_DIR} ({e}), falling back to ./downloads")
+    settings.DOWNLOAD_DIR = "./downloads"
+    Path(settings.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+try:
+    Path(settings.MTPROTO_SESSION_PATH).parent.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass

@@ -11,3 +11,11 @@ temp/
 *.log
 .DS_Store
 Thumbs.db
+
+# dev_md_guides local environment catalog (deploy sample only)
+dev_md_guides/directory.md
+!dev_md_guides/directory.md.sample
+
+# dev_md_guides local credentials (deploy sample only)
+dev_md_guides/credentials.md
+!dev_md_guides/credentials.md.sample
