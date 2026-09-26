@@ -11,6 +11,7 @@ import asyncio
 from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 import httpx
+import shutil
 from bot.config import settings
 from bot.api_client import api_client
 
@@ -80,8 +81,50 @@ class Downloader:
         identifier: str,
         quality: str
     ) -> Tuple[Optional[str], Optional[str], Dict[str, Any]]:
-        """Download track directly from stream extractor API."""
-        # 1. Fetch stream metadata from /stream/:videoId or /get
+        """Download track directly from stream extractor API with audio/video format integrity."""
+        is_video_quality = quality in ("720p", "360p", "best", "video")
+
+        # 1. For Audio: Prioritize /download endpoint (pre-packaged pure MP3 with ID3 tags)
+        if not is_video_quality:
+            try:
+                target_url_or_id = identifier if "http" in identifier else f"https://www.youtube.com/watch?v={identifier}"
+                logger.info(f"Requesting pre-packaged MP3 from /download for {target_url_or_id}")
+                dl_res = await api_client.request_download(target_url_or_id)
+                if dl_res and dl_res.get("success") and dl_res.get("files"):
+                    first_file = dl_res["files"][0]
+                    dl_path = first_file.get("download_url")
+                    if dl_path:
+                        full_dl_url = f"{settings.YTSP_API_BASE_URL.rstrip('/')}{dl_path}" if dl_path.startswith('/') else dl_path
+                        task_id = uuid.uuid4().hex[:8]
+                        file_path = str(self.download_dir / f"{task_id}.mp3")
+
+                        logger.info(f"Downloading pre-packaged MP3 from API: {full_dl_url}")
+                        timeout = httpx.Timeout(connect=15.0, read=90.0, write=30.0, pool=30.0)
+                        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as dl_client:
+                            resp = await dl_client.get(full_dl_url)
+                            if resp.status_code == 200 and len(resp.content) > 1000:
+                                # Verify MP3 header (starts with ID3 or MPEG sync frames)
+                                if resp.content[:3] == b"ID3" or resp.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+                                    with open(file_path, "wb") as f:
+                                        f.write(resp.content)
+                                    raw_title = first_file.get("name", "Audio Track").replace(".mp3", "")
+                                    parts = raw_title.split(" - ", 1)
+                                    artist = parts[0].strip() if len(parts) > 1 else "Unknown Artist"
+                                    title = parts[1].strip() if len(parts) > 1 else raw_title
+                                    metadata = {
+                                        "title": title,
+                                        "artist": artist,
+                                        "duration": 0,
+                                        "videoId": identifier,
+                                        "source": "api_download",
+                                        "is_video": False,
+                                        "quality": quality
+                                    }
+                                    return file_path, None, metadata
+            except Exception as dl_err:
+                logger.warning(f"Pre-packaged /download attempt skipped/failed: {dl_err}")
+
+        # 2. Stream proxy from /stream/:videoId or /get
         meta = await api_client.get_stream_info(identifier, quality=quality)
         if meta:
             proxy_url = meta.get("proxy_url")
@@ -99,19 +142,17 @@ class Downloader:
                 duration_secs = parse_duration_seconds(meta.get("duration"))
                 thumbnail_url = meta.get("thumbnail")
 
-                is_video = quality in ("720p", "360p", "best", "video") or meta.get("ext") == "mp4"
-                ext = "mp4" if is_video else "mp3"
                 task_id = uuid.uuid4().hex[:8]
-                file_path = str(self.download_dir / f"{task_id}.{ext}")
                 thumb_path = str(self.download_dir / f"{task_id}.jpg") if thumbnail_url else None
+                temp_raw_path = str(self.download_dir / f"{task_id}.raw")
 
                 try:
-                    logger.info(f"Streaming {'video' if is_video else 'audio'} chunks from API: {target_url}")
+                    logger.info(f"Streaming {'video' if is_video_quality else 'audio'} from API: {target_url}")
                     stream_timeout = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=30.0)
                     async with httpx.AsyncClient(timeout=stream_timeout, follow_redirects=True) as stream_client:
                         async with stream_client.stream("GET", target_url) as response:
                             if response.status_code in (200, 206):
-                                with open(file_path, "wb") as f:
+                                with open(temp_raw_path, "wb") as f:
                                     async for chunk in response.aiter_bytes(chunk_size=65536):
                                         f.write(chunk)
 
@@ -125,48 +166,97 @@ class Downloader:
                                     except Exception:
                                         thumb_path = None
 
+                    # Check file content and container integrity
+                    if os.path.exists(temp_raw_path) and os.path.getsize(temp_raw_path) > 1000:
+                        with open(temp_raw_path, "rb") as rf:
+                            head = rf.read(16)
+
+                        if is_video_quality:
+                            # Deliver as genuine MP4 video
+                            final_video_path = str(self.download_dir / f"{task_id}.mp4")
+                            os.replace(temp_raw_path, final_video_path)
+                            metadata = {
+                                "title": title,
+                                "artist": artist,
+                                "duration": duration_secs,
+                                "videoId": meta.get("videoId") or identifier,
+                                "source": "api_stream",
+                                "is_video": True,
+                                "quality": quality
+                            }
+                            return final_video_path, thumb_path, metadata
+                        else:
+                            # Deliver as genuine Audio
+                            # Check if stream is already pure MP3
+                            is_mp3_header = head[:3] == b"ID3" or head[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
+                            if is_mp3_header:
+                                final_audio_path = str(self.download_dir / f"{task_id}.mp3")
+                                os.replace(temp_raw_path, final_audio_path)
                                 metadata = {
                                     "title": title,
                                     "artist": artist,
                                     "duration": duration_secs,
                                     "videoId": meta.get("videoId") or identifier,
                                     "source": "api_stream",
-                                    "is_video": is_video,
+                                    "is_video": False,
                                     "quality": quality
                                 }
-                                return file_path, thumb_path, metadata
+                                return final_audio_path, thumb_path, metadata
+
+                            # The stream is an MP4/AAC container: convert via ffmpeg to pure MP3
+                            final_audio_path = str(self.download_dir / f"{task_id}.mp3")
+                            bitrate = "320k" if quality == "audio_high" else ("64k" if quality == "saver" else "192k")
+
+                            if shutil.which("ffmpeg"):
+                                logger.info(f"Transcoding stream to pure MP3 ({bitrate}) using ffmpeg...")
+                                proc = await asyncio.create_subprocess_exec(
+                                    "ffmpeg", "-y", "-i", temp_raw_path,
+                                    "-vn", "-c:a", "libmp3lame", "-b:a", bitrate,
+                                    final_audio_path,
+                                    stdout=asyncio.subprocess.DEVNULL,
+                                    stderr=asyncio.subprocess.DEVNULL
+                                )
+                                await proc.wait()
+                                if os.path.exists(temp_raw_path):
+                                    try:
+                                        os.remove(temp_raw_path)
+                                    except Exception:
+                                        pass
+
+                                if os.path.exists(final_audio_path) and os.path.getsize(final_audio_path) > 1000:
+                                    metadata = {
+                                        "title": title,
+                                        "artist": artist,
+                                        "duration": duration_secs,
+                                        "videoId": meta.get("videoId") or identifier,
+                                        "source": "api_stream_ffmpeg",
+                                        "is_video": False,
+                                        "quality": quality
+                                    }
+                                    return final_audio_path, thumb_path, metadata
+
+                            # Fallback if ffmpeg is not present: save as .m4a so Telegram plays AAC smoothly
+                            final_m4a_path = str(self.download_dir / f"{task_id}.m4a")
+                            os.replace(temp_raw_path, final_m4a_path)
+                            metadata = {
+                                "title": title,
+                                "artist": artist,
+                                "duration": duration_secs,
+                                "videoId": meta.get("videoId") or identifier,
+                                "source": "api_stream_m4a",
+                                "is_video": False,
+                                "quality": quality,
+                                "ext": "m4a"
+                            }
+                            return final_m4a_path, thumb_path, metadata
+
                 except Exception as stream_err:
                     logger.warning(f"Stream proxy download failed: {stream_err}")
-
-        # 2. Alternative: Try /download endpoint
-        try:
-            target_url_or_id = identifier if "http" in identifier else f"https://www.youtube.com/watch?v={identifier}"
-            dl_res = await api_client.request_download(target_url_or_id)
-            if dl_res and dl_res.get("success") and dl_res.get("files"):
-                first_file = dl_res["files"][0]
-                dl_path = first_file.get("download_url")
-                if dl_path:
-                    full_dl_url = f"{settings.YTSP_API_BASE_URL.rstrip('/')}{dl_path}" if dl_path.startswith('/') else dl_path
-                    task_id = uuid.uuid4().hex[:8]
-                    file_path = str(self.download_dir / f"{task_id}.mp3")
-
-                    logger.info(f"Downloading packaged MP3 from API: {full_dl_url}")
-                    async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as dl_client:
-                        resp = await dl_client.get(full_dl_url)
-                        if resp.status_code == 200:
-                            with open(file_path, "wb") as f:
-                                f.write(resp.content)
-                            
-                            metadata = {
-                                "title": first_file.get("name", "Audio Track").replace(".mp3", ""),
-                                "artist": "Artist",
-                                "duration": 0,
-                                "videoId": identifier,
-                                "source": "api_download"
-                            }
-                            return file_path, None, metadata
-        except Exception as dl_err:
-            logger.warning(f"API /download alternative failed: {dl_err}")
+                    if os.path.exists(temp_raw_path):
+                        try:
+                            os.remove(temp_raw_path)
+                        except Exception:
+                            pass
 
         return None, None, {}
 

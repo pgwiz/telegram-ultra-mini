@@ -5,6 +5,16 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-26
+
+### Added
+- **Two-Step Interactive Search UI:** Search results now render clean, uncluttered numbered buttons (1 button per track). Clicking a track edits the message into a format selector (Audio High 320k, Normal 192k, Saver 64k, Video 720p HD, Video 360p SD) with a `⬅️ Back to Search Results` button.
+- **Search Session Memory:** Added search session caching in two-tier cache to allow smooth back-and-forth navigation between track selection and format choosing without re-fetching or flickering.
+
+### Fixed
+- **Audio Integrity & Malformed Playback Prevention:** Eliminated the container mismatch bug where raw MP4 streams were saved as `.mp3` and caused Telegram audio players to fail or report corrupted files. Audio requests now prioritize the pre-packaged `audio/mpeg` MP3 with complete ID3 tags from `/download`, and stream fallbacks transcode to pure MP3 (320k/192k/64k) via FFmpeg or save cleanly as `.m4a` AAC.
+- **Explicit Audio vs. Video Stream Separation:** Default downloads remain strictly audio (`audio_high` 320k); video is only downloaded when explicitly triggered via `/video`, `/dv`, or chosen from the interactive format selector.
+
 ## [1.2.0] - 2026-09-26
 
 ### Added

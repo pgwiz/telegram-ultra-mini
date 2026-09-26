@@ -40,9 +40,17 @@
    - Saves `channel_msg_id` in Neon PostgreSQL.
    - Any future request for the same track and quality is delivered in <200ms using `bot.copy_message(user_chat_id, STORAGE_CHANNEL_ID, channel_msg_id)` without re-downloading or consuming server bandwidth.
 
-## Download & Fallback Strategy
-- **Option 1 (Primary):** Streams audio directly from `ytsp-api.pgwiz.cloud` to disk in chunks.
-- **Option 2 (Emergency Fallback):** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
+## Download & Stream Packaging Strategy
+- **Audio Integrity Guarantee:**
+  - Requests for Audio (`audio_high` 320k, `audio` 192k, `saver` 64k) prioritize `POST /download` to retrieve pre-packaged, ID3-tagged `audio/mpeg` MP3 files.
+  - If streaming from `/stream/play` is used and the stream is an MP4 ISO container, it is converted via FFmpeg (`-vn -c:a libmp3lame -b:a <bitrate>`) to a verified MP3, or kept with a proper `.m4a` AAC container so Telegram audio players never encounter malformed container mismatches.
+- **Video Packaging:**
+  - Requests for Video (`720p` HD, `360p` SD) stream genuine MP4 video files and upload via `bot.send_video(supports_streaming=True)`.
+  - Default downloads remain Audio; Video is only triggered when explicitly requested via `/video`, `/dv`, or chosen in the interactive format selector.
+- **Two-Step Interactive Search UI:**
+  - Searching outputs numbered track buttons (1 button per song).
+  - Tapping a song edits the message into an Audio vs. Video format selector with a `⬅️ Back to Search Results` button.
+- **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
 ## Repositories
 - Public: `https://github.com/pgwiz/telegram-ultra-mini.git`

@@ -163,7 +163,8 @@ async def process_download(
         artist=meta.get("artist"),
         duration=meta.get("duration"),
         thumbnail_path=thumb_path,
-        source=meta.get("source", "api")
+        source=meta.get("source", "api"),
+        is_video=meta.get("is_video")
     )
 
     try:

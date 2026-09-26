@@ -72,10 +72,11 @@ class StorageManager:
         artist: Optional[str] = None,
         duration: Optional[int] = None,
         thumbnail_path: Optional[str] = None,
-        source: str = "api"
+        source: str = "api",
+        is_video: Optional[bool] = None
     ) -> bool:
         """
-        Upload audio file to storage channel, index in Neon DB, and copy to user.
+        Upload audio/video file to storage channel, index in Neon DB, and copy to user.
         """
         if not os.path.exists(file_path):
             logger.error(f"Cannot upload: file does not exist {file_path}")
@@ -83,7 +84,9 @@ class StorageManager:
 
         file_size = os.path.getsize(file_path)
         thumb_input = FSInputFile(thumbnail_path) if thumbnail_path and os.path.exists(thumbnail_path) else None
-        is_video = quality in ("720p", "360p", "best", "video") or file_path.endswith(".mp4")
+        
+        if is_video is None:
+            is_video = quality in ("720p", "360p", "best", "video") or file_path.endswith(".mp4")
 
         try:
             logger.info(f"Uploading {'video' if is_video else 'audio'} {track_id} to storage channel {self.channel_id}...")
@@ -101,7 +104,10 @@ class StorageManager:
                 )
                 telegram_file_id = channel_msg.video.file_id if channel_msg.video else None
             else:
-                audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.mp3")
+                ext = os.path.splitext(file_path)[1].lstrip(".") or "mp3"
+                if ext not in ("mp3", "m4a", "ogg", "flac"):
+                    ext = "mp3"
+                audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.{ext}")
                 channel_msg: Message = await bot.send_audio(
                     chat_id=self.channel_id,
                     audio=audio_input,
