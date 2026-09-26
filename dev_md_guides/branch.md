@@ -1,13 +1,14 @@
 # Branch State & Worktree Topology
 
 - **Active Branch**: `main`
-- **HEAD Commit**: `3da257b` — feat(render): add gunicorn.conf.py for automatic PORT binding and single-worker setup
+- **HEAD Commit**: `8df9598` — fix(database): allow graceful fallback for sqlite:// URLs while keeping full Neon resilience
 - **Tracking Status**: Ahead 0 commits, behind 0 commits relative to origin/main
-- **Last Updated**: 2026-09-26 08:22:39 UTC
+- **Last Updated**: 2026-09-26 08:28:21 UTC
 
 ## Divergence Analysis
 
 ### Recent Commits (Local)
+- `8df9598` (2026-09-26 11:22:57 +0300): fix(database): allow graceful fallback for sqlite:// URLs while keeping full Neon resilience
 - `3da257b` (2026-09-26 11:17:25 +0300): feat(render): add gunicorn.conf.py for automatic PORT binding and single-worker setup
 - `325e047` (2026-09-26 11:15:27 +0300): fix(render): add gunicorn to requirements.txt for Render web service
 - `69508bf` (2026-09-26 11:09:50 +0300): feat: dedicated Neon Postgres with cold-start resilience, PgBouncer pooling, and Render WSGI support
@@ -15,8 +16,7 @@
 - `18662b7` (2026-09-26 10:45:25 +0300): feat: initial release of telegram-ultra-mini pure-python bot with channel warehousing and neon postgres
 
 ### Uncommitted Working Tree State
-- `M .gitignore`
-- ` M bot/database.py`
+- `M bot/main.py`
 
 ## Integration Checklist
 

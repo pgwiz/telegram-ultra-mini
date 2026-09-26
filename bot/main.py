@@ -47,7 +47,27 @@ async def lifespan(app: FastAPI):
     dp = Dispatcher()
     register_all_handlers(dp)
 
-    # 3. Launch polling as background task inside event loop
+    # 3. Register Telegram command menu
+    try:
+        from aiogram.types import BotCommand, BotCommandScopeDefault
+        commands = [
+            BotCommand(command="start", description="Start the bot & welcome info"),
+            BotCommand(command="help", description="How to use the bot & commands"),
+            BotCommand(command="download", description="Download track from YouTube/Spotify"),
+            BotCommand(command="da", description="Download with quality selection"),
+            BotCommand(command="search", description="Search music catalog with 1-click dl"),
+            BotCommand(command="playlist", description="Download playlist (YouTube/Spotify)"),
+            BotCommand(command="history", description="View your recent downloads"),
+            BotCommand(command="ping", description="Bot health & database latency"),
+            BotCommand(command="chatid", description="Get your Telegram chat ID"),
+            BotCommand(command="stats", description="System metrics & storage stats"),
+        ]
+        await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+        logger.info("Telegram command menu registered successfully.")
+    except Exception as e:
+        logger.warning(f"Could not register Telegram commands: {e}")
+
+    # 4. Launch polling as background task inside event loop
     logger.info("Starting Telegram bot polling loop...")
     await bot.delete_webhook(drop_pending_updates=True)
     polling_task = asyncio.create_task(dp.start_polling(bot))
