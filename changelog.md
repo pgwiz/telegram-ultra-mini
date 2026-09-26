@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PgBouncer Pooling Support:** Explicitly set `statement_cache_size=0` on `asyncpg.create_pool` to prevent prepared statement errors on Neon's `-pooler` transaction pooling.
 - **Render Production Entrypoint:** Added `wsgi.py` and `your_application/wsgi.py` using `a2wsgi.ASGIMiddleware` around FastAPI to natively support Render's default `gunicorn your_application.wsgi` start command while running aiogram polling in lifespan.
 - **Dependency Fix:** Added `gunicorn>=23.0.0` to `requirements.txt` to resolve Render deploy failure (`gunicorn: command not found`).
+- **Database Pool & Cache Schema Alignment:** Added `pool` alias property to `Database` and updated `api_cache` to use `response_json` column matching Neon's schema, resolving `AttributeError: 'Database' object has no attribute 'pool'`.
 
 ## [1.0.0] - 2026-09-26
 

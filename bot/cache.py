@@ -39,7 +39,7 @@ class TwoTierCache:
             return self._ram_cache[key]
 
         # 2. Database check
-        if db.pool:
+        if db.is_connected:
             try:
                 db_data = await db.get_api_cache(key)
                 if db_data:
@@ -59,7 +59,7 @@ class TwoTierCache:
         if self.enabled:
             self._ram_cache[key] = data
 
-        if db.pool:
+        if db.is_connected:
             try:
                 await db.set_api_cache(key, data, ttl_seconds)
                 logger.debug(f"[CACHE SET] {key} (TTL: {ttl_seconds}s)")

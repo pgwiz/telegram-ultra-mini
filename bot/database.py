@@ -53,6 +53,11 @@ class Database:
     def is_connected(self) -> bool:
         return self.pg_pool is not None or self.sqlite_conn is not None
 
+    @property
+    def pool(self) -> Optional[asyncpg.Pool]:
+        """Backward-compatible alias for pg_pool."""
+        return self.pg_pool
+
     async def connect(self) -> None:
         """Connect to either Neon PostgreSQL or SQLite based on configuration."""
         async with self._lock:
@@ -210,10 +215,11 @@ class Database:
 
                     CREATE TABLE IF NOT EXISTS api_cache (
                         cache_key TEXT PRIMARY KEY,
-                        data JSONB NOT NULL,
+                        response_json JSONB,
                         expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     );
+                    ALTER TABLE api_cache ADD COLUMN IF NOT EXISTS response_json JSONB;
 
                     CREATE TABLE IF NOT EXISTS download_history (
                         id BIGSERIAL PRIMARY KEY,
@@ -267,7 +273,7 @@ class Database:
 
                 CREATE TABLE IF NOT EXISTS api_cache (
                     cache_key TEXT PRIMARY KEY,
-                    data TEXT NOT NULL,
+                    response_json TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
                     created_at TEXT DEFAULT (datetime('now'))
                 );
@@ -394,25 +400,25 @@ class Database:
         if self.is_postgres:
             async def _run(conn):
                 row = await conn.fetchrow(
-                    "SELECT data FROM api_cache WHERE cache_key = $1 AND expires_at > NOW();",
+                    "SELECT response_json FROM api_cache WHERE cache_key = $1 AND expires_at > NOW();",
                     cache_key
                 )
                 if not row:
                     return None
-                val = row["data"]
+                val = row["response_json"]
                 return json.loads(val) if isinstance(val, str) else val
             return await self._execute_pg_with_retry(_run)
         else:
             now_iso = datetime.utcnow().isoformat()
             async with self.sqlite_conn.execute(
-                "SELECT data FROM api_cache WHERE cache_key = ? AND expires_at > ?;",
+                "SELECT response_json FROM api_cache WHERE cache_key = ? AND expires_at > ?;",
                 (cache_key, now_iso)
             ) as cursor:
                 row = await cursor.fetchone()
                 if not row:
                     return None
                 try:
-                    return json.loads(row["data"])
+                    return json.loads(row["response_json"])
                 except Exception:
                     return None
 
@@ -428,10 +434,10 @@ class Database:
             async def _run(conn):
                 await conn.execute(
                     """
-                    INSERT INTO api_cache (cache_key, data, expires_at)
+                    INSERT INTO api_cache (cache_key, response_json, expires_at)
                     VALUES ($1, $2::jsonb, $3)
                     ON CONFLICT (cache_key) DO UPDATE SET
-                        data = EXCLUDED.data,
+                        response_json = EXCLUDED.response_json,
                         expires_at = EXCLUDED.expires_at;
                     """,
                     cache_key, data_json, expires_at
@@ -441,10 +447,10 @@ class Database:
             data_str = json.dumps(data)
             await self.sqlite_conn.execute(
                 """
-                INSERT INTO api_cache (cache_key, data, expires_at)
+                INSERT INTO api_cache (cache_key, response_json, expires_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT (cache_key) DO UPDATE SET
-                    data = excluded.data,
+                    response_json = excluded.response_json,
                     expires_at = excluded.expires_at;
                 """,
                 (cache_key, data_str, expires_at.isoformat())

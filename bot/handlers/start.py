@@ -65,7 +65,7 @@ async def handle_ping(message: Message):
     msg = await message.answer("🏓 <i>Pinging...</i>", parse_mode="HTML")
     latency_ms = (time.perf_counter() - start_time) * 1000
 
-    db_status = "Connected 🟢" if db.pool else "Disconnected 🔴"
+    db_status = "Connected 🟢" if db.is_connected else "Disconnected 🔴"
     ram_cache_size = len(cache._ram_cache)
 
     reply_text = (
