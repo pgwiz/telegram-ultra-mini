@@ -19,13 +19,22 @@
 2. **Neon Serverless PostgreSQL:**
    - URI: Configured via `DATABASE_URL`.
    - Driver: `asyncpg` with connection pooling.
+   - Scale-to-Zero & Cold-Start Handling:
+     - PgBouncer compatibility: `statement_cache_size=0` on `create_pool` to avoid prepared statement conflicts on Neon `-pooler` endpoints.
+     - Cold-start wakeup backoff: 5 retries with exponential backoff (1.5s, 3s, 6s, 12s, 24s) allowing suspended compute nodes to spin up.
+     - Query-level retry: `_execute_with_retry` automatically catches `ConnectionResetError` or `CannotConnectNowError`, re-establishes the pool, and re-executes.
+     - Keep-alive ping loop: Optional background task executes `SELECT 1;` every 240 seconds to prevent compute scale-to-zero when desired.
    - Tables:
      - `users`: Registered users and admin status.
      - `channel_storage`: Keyed by `(track_id, quality)`, stores `channel_msg_id`, `telegram_file_id`, and metadata.
      - `api_cache`: Persistent JSON cache for metadata (7-day TTL) and search results (24-hour TTL).
      - `download_history`: User download logs.
      - `rate_limits`: Per-user rate limiting.
-3. **Storage Channel Warehousing:**
+3. **Render Deployment & WSGI Compatibility:**
+   - Entrypoint: `wsgi.py` and `your_application/wsgi.py` wrap the FastAPI app in `a2wsgi.ASGIMiddleware(app)`.
+   - Runs cleanly under Render's default command: `gunicorn your_application.wsgi` or standard `uvicorn bot.main:app`.
+   - Aiogram polling runs as a background task within FastAPI lifespan with `/` and `/health` HTTP endpoints responding for Render health checks.
+4. **Storage Channel Warehousing:**
    - Channel ID: Configured via `STORAGE_CHANNEL_ID`.
    - Bot uploads every downloaded track to this private channel.
    - Saves `channel_msg_id` in Neon PostgreSQL.

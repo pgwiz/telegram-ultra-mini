@@ -1,5 +1,5 @@
 # Codebase Architecture & Directory Dependency Graph
-_Last regenerated: 2026-09-26 08:03:43 UTC by dev-md-compactor_
+_Last regenerated: 2026-09-26 08:09:19 UTC by dev-md-compactor_
 
 ## Project Manifests & Build Tools
 - `requirements.txt`
@@ -8,7 +8,7 @@ _Last regenerated: 2026-09-26 08:03:43 UTC by dev-md-compactor_
 
 ### `bot/`
 - **Files (9)**: `__init__.py, api_client.py, cache.py, config.py, database.py, downloader.py, main.py, mtproto.py` (+1 more)
-- **Discovered Module Dependencies**: `aiogram, aiosqlite, asyncio, asyncpg, bot, cachetools, contextlib, datetime, fastapi, hashlib, httpx, json, logging, os, pathlib, pydantic, pydantic_settings, sys, telethon, typing, uuid, uvicorn, yt_dlp`
+- **Discovered Module Dependencies**: `aiogram, asyncio, asyncpg, bot, cachetools, contextlib, datetime, fastapi, hashlib, httpx, json, logging, os, pathlib, pydantic, pydantic_settings, sys, telethon, typing, uuid, uvicorn, yt_dlp`
 
 ### `bot/handlers/`
 - **Files (7)**: `__init__.py, admin.py, callbacks.py, download.py, playlist.py, search.py, start.py`

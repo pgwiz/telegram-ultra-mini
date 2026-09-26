@@ -122,6 +122,31 @@ MTPROTO_SESSION_PATH=./sessions/hermes_session
 
 ---
 
+## ☁️ Deploying to Render
+
+Render runs Gunicorn web services natively. Telegram Ultra Mini includes built-in WSGI/ASGI adapters:
+
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:**
+  ```bash
+  gunicorn your_application.wsgi
+  ```
+  *(Alternatively: `gunicorn wsgi:app` or `uvicorn bot.main:app --host 0.0.0.0 --port $PORT`)*
+
+The FastAPI server serves Render's HTTP health checks on `/health` and `/` while running the Telegram bot polling process in the background.
+
+---
+
+## ⚡ Neon PostgreSQL Cold-Start Resilience
+
+Neon serverless computes automatically scale to zero after idle periods. Telegram Ultra Mini handles this natively:
+- **PgBouncer Pooling:** Uses `statement_cache_size=0` on `asyncpg` to prevent prepared statement errors on pooled connection strings.
+- **Wakeup Retry Loop:** Retries connection creation up to 5 times with exponential backoff while suspended Neon computes resume.
+- **Query Re-execution:** Automatically catches transient connection reset errors during scale-up and re-executes queries seamlessly.
+- **Optional Keep-Alive:** Pings the database every 240 seconds (`ENABLE_DB_KEEPALIVE=true`) to keep the compute active if desired.
+
+---
+
 ## 🔄 Dual Git Sync (Public + Private)
 
 The repository is configured with dual remotes:
