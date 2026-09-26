@@ -1,5 +1,5 @@
 # Codebase Architecture & Directory Dependency Graph
-_Last regenerated: 2026-09-26 08:15:09 UTC by dev-md-compactor_
+_Last regenerated: 2026-09-26 08:17:16 UTC by dev-md-compactor_
 
 ## Project Manifests & Build Tools
 - `requirements.txt`
@@ -22,7 +22,7 @@ _Last regenerated: 2026-09-26 08:15:09 UTC by dev-md-compactor_
 - **Files (10)**: `24445e15.mp3, 2bf05257.mp3, 45ea0ed1.jpg, 45ea0ed1.mp3, 7b480e8f.webm.part, 7b480e8f.webp, c17550a3.mp3, e0f57bb4.jpg` (+2 more)
 
 ### `root/`
-- **Files (8)**: `agent.md, changelog.md, memory.md, readme.md, requirements.txt, skills-lock.json, test_verification.py, wsgi.py`
+- **Files (9)**: `agent.md, changelog.md, gunicorn.conf.py, memory.md, readme.md, requirements.txt, skills-lock.json, test_verification.py` (+1 more)
 - **Discovered Module Dependencies**: `a2wsgi, asyncio, bot, os, sys`
 
 ### `your_application/`
