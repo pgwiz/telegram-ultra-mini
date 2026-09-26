@@ -1,13 +1,14 @@
 # Branch State & Worktree Topology
 
 - **Active Branch**: `main`
-- **HEAD Commit**: `5b87607` — feat: add plain-text search fallback and native MP4 video download support
+- **HEAD Commit**: `b134b04` — fix(health): support HTTP HEAD method on root and health endpoints
 - **Tracking Status**: Ahead 0 commits, behind 0 commits relative to origin/main
-- **Last Updated**: 2026-09-26 08:50:03 UTC
+- **Last Updated**: 2026-09-26 08:56:52 UTC
 
 ## Divergence Analysis
 
 ### Recent Commits (Local)
+- `b134b04` (2026-09-26 11:50:33 +0300): fix(health): support HTTP HEAD method on root and health endpoints
 - `5b87607` (2026-09-26 11:47:45 +0300): feat: add plain-text search fallback and native MP4 video download support
 - `3ed9fae` (2026-09-26 11:35:40 +0300): fix(cache): resolve 'Database' object has no attribute 'pool' and align api_cache schema
 - `811e5e9` (2026-09-26 11:28:44 +0300): feat(telegram): automatically register bot command menu on startup
@@ -19,7 +20,7 @@
 - `18662b7` (2026-09-26 10:45:25 +0300): feat: initial release of telegram-ultra-mini pure-python bot with channel warehousing and neon postgres
 
 ### Uncommitted Working Tree State
-- `M bot/main.py`
+- `M bot/api_client.py`
 
 ## Integration Checklist
 

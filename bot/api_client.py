@@ -79,14 +79,19 @@ class StreamApiClient:
         if cached_result:
             return cached_result
 
-        # Path endpoint /stream/:videoId
-        endpoint = f"/stream/{video_id_or_url}"
-        params = {"quality": quality}
-        data = await self._request_with_retry("GET", endpoint, params=params)
+        is_spotify = "spotify" in video_id_or_url or len(video_id_or_url) == 22
+        if is_spotify:
+            sp_url = video_id_or_url if video_id_or_url.startswith("http") else f"https://open.spotify.com/track/{video_id_or_url}"
+            data = await self._request_with_retry("GET", "/get", params={"ytl": sp_url, "quality": quality}, timeout=45.0)
+        else:
+            # Path endpoint /stream/:videoId
+            endpoint = f"/stream/{video_id_or_url}"
+            params = {"quality": quality}
+            data = await self._request_with_retry("GET", endpoint, params=params)
 
-        if not data or not data.get("streamUrl"):
-            # Fallback to /get?ytl=...
-            data = await self._request_with_retry("GET", "/get", params={"ytl": video_id_or_url, "quality": quality})
+            if not data or not data.get("streamUrl"):
+                # Fallback to /get?ytl=...
+                data = await self._request_with_retry("GET", "/get", params={"ytl": video_id_or_url, "quality": quality})
 
         if data:
             # Cache stream metadata in DB for 7 days
@@ -132,7 +137,7 @@ class StreamApiClient:
 
         endpoint = f"/api/spotify/playlist/{playlist_id}"
         params = {"limit": limit}
-        data = await self._request_with_retry("GET", endpoint, params=params)
+        data = await self._request_with_retry("GET", endpoint, params=params, timeout=60.0)
 
         if data:
             tracks = data.get("tracks") or data.get("results") or []
