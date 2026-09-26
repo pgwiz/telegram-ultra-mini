@@ -14,7 +14,7 @@ router = Router(name="download")
 
 
 def make_quality_keyboard(platform: str, identifier: str) -> InlineKeyboardMarkup:
-    """Build quality selection inline keyboard."""
+    """Build quality selection inline keyboard with Audio and Video presets."""
     buttons = [
         [
             InlineKeyboardButton(
@@ -22,12 +22,22 @@ def make_quality_keyboard(platform: str, identifier: str) -> InlineKeyboardMarku
                 callback_data=f"dl:{platform}:{identifier}:audio_high"
             ),
             InlineKeyboardButton(
-                text="🎶 Standard (192k)",
+                text="🎶 Normal (192k)",
                 callback_data=f"dl:{platform}:{identifier}:audio"
             ),
             InlineKeyboardButton(
                 text="💾 Saver (64k)",
                 callback_data=f"dl:{platform}:{identifier}:saver"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🎬 Video HD (720p)",
+                callback_data=f"dl:{platform}:{identifier}:720p"
+            ),
+            InlineKeyboardButton(
+                text="🎬 Video SD (360p)",
+                callback_data=f"dl:{platform}:{identifier}:360p"
             )
         ]
     ]
@@ -36,7 +46,7 @@ def make_quality_keyboard(platform: str, identifier: str) -> InlineKeyboardMarku
 
 @router.message(Command("da"))
 async def handle_da_command(message: Message):
-    """Handle /da <url> with interactive quality selection."""
+    """Handle /da <url> with interactive quality selection (Audio & Video)."""
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: <code>/da &lt;youtube or spotify url&gt;</code>", parse_mode="HTML")
@@ -53,7 +63,18 @@ async def handle_da_command(message: Message):
         return
 
     keyboard = make_quality_keyboard(platform, identifier)
-    await message.answer("🎧 <b>Select Audio Quality:</b>", reply_markup=keyboard, parse_mode="HTML")
+    await message.answer("🎧 <b>Select Format & Quality:</b>", reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.message(Command("video", "dv"))
+async def handle_video_command(message: Message, bot: Bot):
+    """Handle /video <url> or /dv <url> for direct 720p MP4 video download."""
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Usage: <code>/video &lt;youtube url&gt;</code>", parse_mode="HTML")
+        return
+
+    await process_download(message, bot, args[1].strip(), quality="720p")
 
 
 @router.message(Command("download"))
@@ -69,17 +90,24 @@ async def handle_download_command(message: Message, bot: Bot):
 
 @router.message(F.text)
 async def handle_direct_link(message: Message, bot: Bot):
-    """Auto-detect YouTube and Spotify links in regular messages."""
-    platform, media_type, identifier = extract_media_info(message.text)
-    if not identifier:
-        return  # Not a recognized link
-
-    if media_type == "playlist":
-        from bot.handlers.playlist import process_playlist
-        await process_playlist(message, bot, platform, identifier)
+    """Auto-detect YouTube/Spotify links, or fallback to search for plain text."""
+    text = message.text.strip()
+    if text.startswith("/"):
         return
 
-    await process_download(message, bot, message.text.strip(), platform=platform, identifier=identifier)
+    platform, media_type, identifier = extract_media_info(text)
+    if identifier:
+        if media_type == "playlist":
+            from bot.handlers.playlist import process_playlist
+            await process_playlist(message, bot, platform, identifier)
+            return
+
+        await process_download(message, bot, text, platform=platform, identifier=identifier)
+        return
+
+    # Plain text without recognized links: automatically execute search
+    from bot.handlers.search import execute_search
+    await execute_search(message, text)
 
 
 async def process_download(

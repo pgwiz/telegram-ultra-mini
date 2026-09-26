@@ -53,8 +53,9 @@ async def lifespan(app: FastAPI):
         commands = [
             BotCommand(command="start", description="Start the bot & welcome info"),
             BotCommand(command="help", description="How to use the bot & commands"),
-            BotCommand(command="download", description="Download track from YouTube/Spotify"),
-            BotCommand(command="da", description="Download with quality selection"),
+            BotCommand(command="download", description="Download audio from YouTube/Spotify"),
+            BotCommand(command="video", description="Download video from YouTube (MP4 720p)"),
+            BotCommand(command="da", description="Format picker (Audio 320k/192k/64k, Video 720p/360p)"),
             BotCommand(command="search", description="Search music catalog with 1-click dl"),
             BotCommand(command="playlist", description="Download playlist (YouTube/Spotify)"),
             BotCommand(command="history", description="View your recent downloads"),

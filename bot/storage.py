@@ -83,23 +83,37 @@ class StorageManager:
 
         file_size = os.path.getsize(file_path)
         thumb_input = FSInputFile(thumbnail_path) if thumbnail_path and os.path.exists(thumbnail_path) else None
-        audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.mp3")
+        is_video = quality in ("720p", "360p", "best", "video") or file_path.endswith(".mp4")
 
         try:
-            logger.info(f"Uploading track {track_id} to storage channel {self.channel_id}...")
+            logger.info(f"Uploading {'video' if is_video else 'audio'} {track_id} to storage channel {self.channel_id}...")
             # 1. Send to private storage channel
-            channel_msg: Message = await bot.send_audio(
-                chat_id=self.channel_id,
-                audio=audio_input,
-                title=title,
-                performer=artist or "Unknown Artist",
-                duration=duration or 0,
-                thumbnail=thumb_input,
-                caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}"
-            )
+            if is_video:
+                video_input = FSInputFile(file_path, filename=f"{title}.mp4")
+                channel_msg: Message = await bot.send_video(
+                    chat_id=self.channel_id,
+                    video=video_input,
+                    caption=f"🎬 <b>{title}</b>\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}",
+                    duration=duration or 0,
+                    thumbnail=thumb_input,
+                    supports_streaming=True,
+                    parse_mode="HTML"
+                )
+                telegram_file_id = channel_msg.video.file_id if channel_msg.video else None
+            else:
+                audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.mp3")
+                channel_msg: Message = await bot.send_audio(
+                    chat_id=self.channel_id,
+                    audio=audio_input,
+                    title=title,
+                    performer=artist or "Unknown Artist",
+                    duration=duration or 0,
+                    thumbnail=thumb_input,
+                    caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}"
+                )
+                telegram_file_id = channel_msg.audio.file_id if channel_msg.audio else None
 
             channel_msg_id = channel_msg.message_id
-            telegram_file_id = channel_msg.audio.file_id if channel_msg.audio else None
 
             # 2. Persist message ID and metadata into Neon DB
             await db.save_cached_track(

@@ -20,6 +20,11 @@ async def handle_search(message: Message):
         return
 
     query = args[1].strip()
+    await execute_search(message, query)
+
+
+async def execute_search(message: Message, query: str) -> None:
+    """Execute music search and render inline Audio/Video download buttons."""
     user_id = message.from_user.id if message.from_user else message.chat.id
 
     # Rate limit check
@@ -30,7 +35,7 @@ async def handle_search(message: Message):
     status_msg = await message.answer(f"🔍 <i>Searching for:</i> <b>{query}</b>...", parse_mode="HTML")
 
     try:
-        results = await api_client.search_tracks(query, limit=8)
+        results = await api_client.search_tracks(query, limit=6)
         if not results:
             await status_msg.edit_text(f"❌ No tracks found for <b>{query}</b>.", parse_mode="HTML")
             return
@@ -47,14 +52,18 @@ async def handle_search(message: Message):
             if not video_id:
                 continue
 
-            text_lines.append(f"{idx}. <b>{title}</b> - <i>{artist}</i> ({duration})")
-            
-            # Button to trigger 1-click download with high audio quality
-            btn_label = f"⬇️ {idx}. {title[:28]}"
+            dur_str = f" ({duration})" if duration else ""
+            text_lines.append(f"{idx}. <b>{title}</b> - <i>{artist}</i>{dur_str}")
+
+            # Buttons: 🎵 Audio High (320k) and 🎬 Video (720p)
             buttons.append([
                 InlineKeyboardButton(
-                    text=btn_label,
+                    text=f"🎵 {idx}. {title[:20]}",
                     callback_data=f"dl:youtube:{video_id}:audio_high"
+                ),
+                InlineKeyboardButton(
+                    text="🎬 Video (720p)",
+                    callback_data=f"dl:youtube:{video_id}:720p"
                 )
             ])
 

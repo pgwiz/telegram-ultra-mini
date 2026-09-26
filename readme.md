@@ -50,16 +50,19 @@
 | :--- | :--- |
 | `/start` | Welcome message and bot introduction |
 | `/help` | Detailed help and feature guide |
-| `/download <url>` | Download audio from YouTube or Spotify |
-| `/da <url>` | Download with quality selector (`audio_high`, `audio`, `saver`) |
-| `/search <query>` | Search tracks with 1-click inline download buttons |
+| `/download <url>` | Download audio from YouTube or Spotify (320k) |
+| `/video <url>` | Download video from YouTube (MP4 720p HD) |
+| `/da <url>` | Interactive format picker (`audio_high`, `audio`, `saver`, `720p`, `360p`) |
+| `/search <query>` | Search tracks with 1-click Audio & Video download buttons |
 | `/playlist <url>` | Batch download playlist tracks with live progress |
 | `/history` | View your recent download history |
 | `/ping` | Health check with database latency and RAM cache size |
 | `/chatid` | Display your Telegram chat ID |
 | `/stats` | Admin system metrics and channel storage count |
 
-> 💡 **Auto Link Detection:** Users can simply paste any YouTube or Spotify link directly into the chat. The bot detects and processes it automatically.
+> 💡 **Smart Input Detection:**
+> - **Links:** Paste any YouTube or Spotify URL directly into the chat to download immediately.
+> - **Plain Text:** Type any song title or artist name directly into the chat — the bot automatically searches and presents 1-click **🎵 Audio** and **🎬 Video** download buttons!
 
 ---
 

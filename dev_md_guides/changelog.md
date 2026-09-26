@@ -1,6 +1,24 @@
 # Session Operational Changelog
 _Append-only. Newest first. Never edit past entries._
 
+## [2026-09-26 08:46:58 UTC] — Branch `main` (HEAD: `3ed9fae`)
+- **Event**: Automated Context Compaction
+- **Operational Scope**: Synchronized repository ground-truth into `dev_md_guides/`
+
+### AST & Code Modifications
+- **File**: `bot/downloader.py` (python)
+  - *Functions*: parse_duration_seconds(duration_val) [line:20]
+  - *Classes*: Downloader (methods: __init__(), download_track(identifier, quality, force_fallback), _download_via_api(identifier, quality), _download_via_ytdlp(identifier, quality)) [line:40]
+- **File**: `bot/handlers/download.py` (python)
+  - *Functions*: make_quality_keyboard(platform, identifier) [line:16], handle_da_command(message) [line:48], handle_video_command(message, bot) [line:70], handle_download_command(message, bot) [line:81], handle_direct_link(message, bot) [line:92], process_download(message, bot, url_or_id, platform, identifier, quality) [line:113]
+- **File**: `bot/handlers/search.py` (python)
+  - *Functions*: handle_search(message) [line:15], execute_search(message, query) [line:26]
+- **File**: `bot/main.py` (python)
+  - *Functions*: lifespan(app) [line:32], root() [line:96], health_check() [line:107], get_stats() [line:117], start_cli() [line:122]
+- **File**: `bot/storage.py` (python)
+  - *Classes*: StorageManager (methods: __init__(), get_cached(track_id, quality), deliver_cached(bot, user_chat_id, track_id, quality), upload_and_cache(bot, user_chat_id, file_path, track_id, quality, title, artist, duration, thumbnail_path, source)) [line:19]
+
+---
 ## [2026-09-26 08:35:22 UTC] — Branch `main` (HEAD: `811e5e9`)
 - **Event**: Automated Context Compaction
 - **Operational Scope**: Synchronized repository ground-truth into `dev_md_guides/`

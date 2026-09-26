@@ -1,13 +1,14 @@
 # Branch State & Worktree Topology
 
 - **Active Branch**: `main`
-- **HEAD Commit**: `811e5e9` — feat(telegram): automatically register bot command menu on startup
+- **HEAD Commit**: `3ed9fae` — fix(cache): resolve 'Database' object has no attribute 'pool' and align api_cache schema
 - **Tracking Status**: Ahead 0 commits, behind 0 commits relative to origin/main
-- **Last Updated**: 2026-09-26 08:35:22 UTC
+- **Last Updated**: 2026-09-26 08:46:58 UTC
 
 ## Divergence Analysis
 
 ### Recent Commits (Local)
+- `3ed9fae` (2026-09-26 11:35:40 +0300): fix(cache): resolve 'Database' object has no attribute 'pool' and align api_cache schema
 - `811e5e9` (2026-09-26 11:28:44 +0300): feat(telegram): automatically register bot command menu on startup
 - `8df9598` (2026-09-26 11:22:57 +0300): fix(database): allow graceful fallback for sqlite:// URLs while keeping full Neon resilience
 - `3da257b` (2026-09-26 11:17:25 +0300): feat(render): add gunicorn.conf.py for automatic PORT binding and single-worker setup
@@ -17,10 +18,13 @@
 - `18662b7` (2026-09-26 10:45:25 +0300): feat: initial release of telegram-ultra-mini pure-python bot with channel warehousing and neon postgres
 
 ### Uncommitted Working Tree State
-- `M bot/cache.py`
-- ` M bot/database.py`
-- ` M bot/handlers/start.py`
+- `M bot/downloader.py`
+- ` M bot/handlers/download.py`
+- ` M bot/handlers/search.py`
+- ` M bot/main.py`
+- ` M bot/storage.py`
 - ` M changelog.md`
+- ` M readme.md`
 
 ## Integration Checklist
 

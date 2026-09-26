@@ -5,6 +5,14 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-26
+
+### Added
+- **Automatic Plain-Text Search:** Sending regular text (not a link, not a command) directly triggers a music catalog search with 1-click download buttons, matching Hermes behavior.
+- **Native MP4 Video Downloads:** Added full support for video downloads via `ytsp-api.pgwiz.cloud` (`720p` HD and `360p` SD presets) streamed directly as MP4.
+- **Video Commands & Format Selectors:** Added `/video <url>` and `/dv <url>`, expanded `/da` quality selector with HD (720p) and SD (360p) options, and added dedicated video buttons to search results.
+- **Video Channel Warehousing:** Extended cloud channel archiving to handle video messages using `bot.send_video(supports_streaming=True)` with instant user delivery via `copy_message`.
+
 ## [1.1.0] - 2026-09-26
 
 ### Added

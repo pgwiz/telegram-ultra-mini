@@ -99,12 +99,14 @@ class Downloader:
                 duration_secs = parse_duration_seconds(meta.get("duration"))
                 thumbnail_url = meta.get("thumbnail")
 
+                is_video = quality in ("720p", "360p", "best", "video") or meta.get("ext") == "mp4"
+                ext = "mp4" if is_video else "mp3"
                 task_id = uuid.uuid4().hex[:8]
-                file_path = str(self.download_dir / f"{task_id}.mp3")
+                file_path = str(self.download_dir / f"{task_id}.{ext}")
                 thumb_path = str(self.download_dir / f"{task_id}.jpg") if thumbnail_url else None
 
                 try:
-                    logger.info(f"Streaming audio chunks from API: {target_url}")
+                    logger.info(f"Streaming {'video' if is_video else 'audio'} chunks from API: {target_url}")
                     stream_timeout = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=30.0)
                     async with httpx.AsyncClient(timeout=stream_timeout, follow_redirects=True) as stream_client:
                         async with stream_client.stream("GET", target_url) as response:
@@ -128,7 +130,9 @@ class Downloader:
                                     "artist": artist,
                                     "duration": duration_secs,
                                     "videoId": meta.get("videoId") or identifier,
-                                    "source": "api_stream"
+                                    "source": "api_stream",
+                                    "is_video": is_video,
+                                    "quality": quality
                                 }
                                 return file_path, thumb_path, metadata
                 except Exception as stream_err:
@@ -176,21 +180,33 @@ class Downloader:
         """Emergency fallback using yt-dlp module."""
         import yt_dlp
 
+        is_video = quality in ("720p", "360p", "best", "video")
+        ext = "mp4" if is_video else "mp3"
         task_id = uuid.uuid4().hex[:8]
         out_tmpl = str(self.download_dir / f"{task_id}.%(ext)s")
 
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': out_tmpl,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'writethumbnail': False,
-            'quiet': True,
-            'no_warnings': True,
-        }
+        if is_video:
+            ydl_opts = {
+                'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+                'outtmpl': out_tmpl,
+                'merge_output_format': 'mp4',
+                'writethumbnail': False,
+                'quiet': True,
+                'no_warnings': True,
+            }
+        else:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': out_tmpl,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '320' if quality == 'audio_high' else '192',
+                }],
+                'writethumbnail': False,
+                'quiet': True,
+                'no_warnings': True,
+            }
 
         def run_ytdlp():
             target = identifier if "http" in identifier else f"https://www.youtube.com/watch?v={identifier}"
@@ -199,7 +215,7 @@ class Downloader:
                 return info
 
         info = await asyncio.to_thread(run_ytdlp)
-        file_path = str(self.download_dir / f"{task_id}.mp3")
+        file_path = str(self.download_dir / f"{task_id}.{ext}")
         thumb_path = None
 
         metadata = {
@@ -207,7 +223,9 @@ class Downloader:
             "artist": info.get("uploader") or "Unknown Artist",
             "duration": int(info.get("duration") or 0),
             "videoId": info.get("id") or identifier,
-            "source": "ytdlp_fallback"
+            "source": "ytdlp_fallback",
+            "is_video": is_video,
+            "quality": quality
         }
         return file_path, thumb_path, metadata
 
