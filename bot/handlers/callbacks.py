@@ -77,6 +77,72 @@ async def handle_select_track(callback: CallbackQuery):
         ],
         [
             InlineKeyboardButton(text="💾 Saver Audio (64k)", callback_data=f"dl:youtube:{identifier}:saver"),
+            InlineKeyboardButton(text="⚡ Force Re-download", callback_data=f"fsel:{identifier}:{q_hash}"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Back to Search Results", callback_data=f"back:{q_hash}"),
+        ]
+    ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("fsel:"))
+async def handle_force_select_track(callback: CallbackQuery):
+    """
+    Handle forced format selection: fsel:{identifier}:{q_hash}
+    Displays format buttons that bypass storage cache and re-download fresh.
+    """
+    await callback.answer()
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        await callback.answer("⚠️ Invalid track selection.", show_alert=True)
+        return
+
+    _, identifier, q_hash = parts[0], parts[1], parts[2]
+
+    title = "Selected Track"
+    artist = "Unknown Artist"
+    duration = ""
+
+    session = await cache.get(f"search_session:{q_hash}")
+    if session and "results" in session:
+        for item in session["results"]:
+            vid = item.get("videoId") or item.get("id")
+            if vid == identifier:
+                title = item.get("title") or item.get("name") or title
+                artist = item.get("artist") or item.get("uploader") or artist
+                duration = item.get("duration") or ""
+                break
+    else:
+        info = await api_client.get_stream_info(identifier)
+        if info:
+            title = info.get("title") or title
+            artist = info.get("uploader") or info.get("artist") or artist
+            duration = str(info.get("duration") or "")
+
+    dur_text = f"\n⏱ <i>Duration:</i> <code>{duration}</code>" if duration else ""
+    text = (
+        f"⚡ <b>Force Re-downloading Track:</b>\n"
+        f"<b>{title}</b>\n"
+        f"👤 <i>{artist}</i>"
+        f"{dur_text}\n\n"
+        f"<i>⚠️ Storage cache will be bypassed and the DB reference updated.</i>\n\n"
+        f"👇 <b>Select download format:</b>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚡ Audio High (320k)", callback_data=f"dl:youtube:{identifier}:audio_high:force"),
+            InlineKeyboardButton(text="⚡ Normal (192k)", callback_data=f"dl:youtube:{identifier}:audio:force"),
+        ],
+        [
+            InlineKeyboardButton(text="⚡ Video HD (720p)", callback_data=f"dl:youtube:{identifier}:720p:force"),
+            InlineKeyboardButton(text="⚡ Video SD (360p)", callback_data=f"dl:youtube:{identifier}:360p:force"),
+        ],
+        [
+            InlineKeyboardButton(text="⚡ Saver (64k)", callback_data=f"dl:youtube:{identifier}:saver:force"),
+            InlineKeyboardButton(text="↩️ Standard Mode", callback_data=f"sel:{identifier}:{q_hash}"),
         ],
         [
             InlineKeyboardButton(text="⬅️ Back to Search Results", callback_data=f"back:{q_hash}"),
@@ -111,7 +177,7 @@ async def handle_back_to_search(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("dl:"))
 async def handle_download_callback(callback: CallbackQuery, bot: Bot):
     """
-    Handle quality selection callback: dl:{platform}:{identifier}:{quality}
+    Handle quality selection callback: dl:{platform}:{identifier}:{quality}[:force]
     """
     await callback.answer("Processing request...")
     parts = callback.data.split(":")
@@ -120,26 +186,31 @@ async def handle_download_callback(callback: CallbackQuery, bot: Bot):
         return
 
     _, platform, identifier, quality = parts[0], parts[1], parts[2], parts[3]
+    is_force = len(parts) >= 5 and parts[4] == "force"
     user_id = callback.from_user.id
     label = QUALITY_LABELS.get(quality, quality)
 
-    # 1. Check storage channel cache in Neon DB
-    cached = await storage_manager.deliver_cached(
-        bot=bot,
-        user_chat_id=user_id,
-        track_id=identifier,
-        quality=quality
-    )
-    if cached:
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
-        return
+    # 1. Check storage channel cache in Neon DB (skip if force=True)
+    if not is_force:
+        cached = await storage_manager.deliver_cached(
+            bot=bot,
+            user_chat_id=user_id,
+            track_id=identifier,
+            quality=quality
+        )
+        if cached:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            return
+    else:
+        logger.info(f"Force re-download requested via callback for {identifier} ({quality})")
 
-    # 2. Cache miss: trigger download
+    # 2. Cache miss or forced: trigger download
+    status_label = f"⚡ <b>Force re-downloading {label}...</b>\n<i>Bypassing cache and extracting fresh stream...</i>" if is_force else f"⏳ <b>Downloading {label}...</b>\n<i>Please wait while your media is being downloaded and verified...</i>"
     status_msg = await callback.message.edit_text(
-        f"⏳ <b>Downloading {label}...</b>\n<i>Please wait while your media is being downloaded and verified...</i>",
+        status_label,
         parse_mode="HTML"
     )
 
@@ -148,7 +219,7 @@ async def handle_download_callback(callback: CallbackQuery, bot: Bot):
         await status_msg.edit_text(f"❌ <b>Download failed for {label}.</b> Please try another format or link.")
         return
 
-    # 3. Upload to storage channel & copy to user
+    # 3. Upload to storage channel & copy to user (updates Neon DB ref on conflict)
     await status_msg.edit_text(f"⚡ <b>Sending {label} to chat...</b>", parse_mode="HTML")
     success = await storage_manager.upload_and_cache(
         bot=bot,

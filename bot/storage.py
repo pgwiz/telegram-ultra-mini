@@ -168,5 +168,28 @@ class StorageManager:
                 except Exception as clean_err:
                     logger.warning(f"Error cleaning up temp file {file_path}: {clean_err}")
 
+    async def delete_cached_track(
+        self,
+        bot: Bot,
+        track_id: str,
+        quality: Optional[str] = None
+    ) -> int:
+        """
+        Delete track from Neon DB and remove message from private storage channel.
+        Returns count of deleted storage records.
+        """
+        clean_track_id = track_id.lstrip("#").strip()
+        msg_ids = await db.delete_cached_track(clean_track_id, quality=quality)
+        deleted_count = 0
+        for msg_id in msg_ids:
+            try:
+                await bot.delete_message(chat_id=self.channel_id, message_id=msg_id)
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Could not delete message {msg_id} from storage channel {self.channel_id}: {e}")
+
+        logger.info(f"Purged track {clean_track_id}: deleted {len(msg_ids)} db rows and {deleted_count} channel messages.")
+        return len(msg_ids)
+
 
 storage_manager = StorageManager()

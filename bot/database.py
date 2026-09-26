@@ -390,6 +390,59 @@ class Database:
             )
             await self.sqlite_conn.commit()
 
+    async def delete_cached_track(self, track_id: str, quality: Optional[str] = None) -> List[int]:
+        """Delete cached track records from channel_storage, returning list of channel_msg_ids."""
+        if not self.is_connected:
+            return []
+
+        clean_id = track_id.lstrip("#").strip()
+
+        if self.is_postgres:
+            async def _run(conn):
+                if quality:
+                    rows = await conn.fetch(
+                        "SELECT channel_msg_id FROM channel_storage WHERE track_id = $1 AND quality = $2;",
+                        clean_id, quality
+                    )
+                    await conn.execute(
+                        "DELETE FROM channel_storage WHERE track_id = $1 AND quality = $2;",
+                        clean_id, quality
+                    )
+                else:
+                    rows = await conn.fetch(
+                        "SELECT channel_msg_id FROM channel_storage WHERE track_id = $1;",
+                        clean_id
+                    )
+                    await conn.execute(
+                        "DELETE FROM channel_storage WHERE track_id = $1;",
+                        clean_id
+                    )
+                return [r["channel_msg_id"] for r in rows if r.get("channel_msg_id")]
+            return await self._execute_pg_with_retry(_run)
+        else:
+            if quality:
+                async with self.sqlite_conn.execute(
+                    "SELECT channel_msg_id FROM channel_storage WHERE track_id = ? AND quality = ?;",
+                    (clean_id, quality)
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                await self.sqlite_conn.execute(
+                    "DELETE FROM channel_storage WHERE track_id = ? AND quality = ?;",
+                    (clean_id, quality)
+                )
+            else:
+                async with self.sqlite_conn.execute(
+                    "SELECT channel_msg_id FROM channel_storage WHERE track_id = ?;",
+                    (clean_id,)
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                await self.sqlite_conn.execute(
+                    "DELETE FROM channel_storage WHERE track_id = ?;",
+                    (clean_id,)
+                )
+            await self.sqlite_conn.commit()
+            return [r[0] for r in rows if r[0]]
+
     # ── API Response Caching ──────────────────────────────────────────────
 
     async def get_api_cache(self, cache_key: str) -> Optional[Any]:
@@ -668,6 +721,48 @@ class Database:
                 "cached_tracks": cached_tracks or 0,
                 "total_downloads": total_downloads or 0
             }
+
+    async def cleanup_expired_cache(self) -> int:
+        """Purge expired rows from api_cache table and return count of deleted rows."""
+        if not self.is_connected:
+            return 0
+
+        if self.is_postgres:
+            async def _run(conn):
+                res = await conn.execute("DELETE FROM api_cache WHERE expires_at < NOW();")
+                try:
+                    return int(res.split()[1]) if res and len(res.split()) > 1 else 0
+                except (ValueError, IndexError):
+                    return 0
+            return await self._execute_pg_with_retry(_run)
+        else:
+            now_iso = datetime.utcnow().isoformat()
+            cursor = await self.sqlite_conn.execute("DELETE FROM api_cache WHERE expires_at < ?;", (now_iso,))
+            count = cursor.rowcount
+            await self.sqlite_conn.commit()
+            return count if count and count > 0 else 0
+
+    async def is_admin(self, user_id: int) -> bool:
+        """Check if user_id is admin (via ADMIN_CHAT_ID or is_admin flag in users table)."""
+        if user_id and user_id == settings.ADMIN_CHAT_ID:
+            return True
+
+        if not self.is_connected:
+            return False
+
+        try:
+            if self.is_postgres:
+                async def _run(conn):
+                    val = await conn.fetchval("SELECT is_admin FROM users WHERE chat_id = $1;", user_id)
+                    return bool(val)
+                return await self._execute_pg_with_retry(_run)
+            else:
+                async with self.sqlite_conn.execute("SELECT is_admin FROM users WHERE chat_id = ?;", (user_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    return bool(row[0]) if row else False
+        except Exception as e:
+            logger.warning(f"Error checking admin status for {user_id}: {e}")
+            return False
 
 
 db = Database()

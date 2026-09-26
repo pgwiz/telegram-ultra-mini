@@ -39,23 +39,38 @@ async def handle_start(message: Message):
 
 @router.message(Command("help"))
 async def handle_help(message: Message):
-    """Handle /help command."""
-    help_text = (
-        "📖 <b>Telegram Ultra Mini - Help</b>\n\n"
-        "<b>Direct Link Pasting:</b>\n"
-        "Simply send a link from YouTube (video, short, playlist) or Spotify (track, album, playlist). "
-        "The bot will detect it automatically.\n\n"
-        "<b>Quality Options (/da):</b>\n"
-        "• <code>audio_high</code> - 320k / 256k AAC high fidelity\n"
-        "• <code>audio</code> - 192k standard quality\n"
-        "• <code>saver</code> - 64k mobile data saver\n\n"
-        "<b>Search:</b>\n"
-        "Type <code>/search &lt;song title or artist&gt;</code> to browse and pick a track.\n\n"
-        "<b>Speed & Caching:</b>\n"
-        "All songs are backed by a private storage channel. When you request a previously downloaded song, "
-        "it delivers in milliseconds!"
-    )
-    await message.answer(help_text, parse_mode="HTML")
+    """Handle /help command with dynamic admin control section."""
+    user_id = message.from_user.id if message.from_user else 0
+    is_adm = await db.is_admin(user_id)
+
+    sections = [
+        "📖 <b>Telegram Ultra Mini - Help</b>\n",
+        "<b>🎵 Direct Links:</b>\n"
+        "Send any YouTube or Spotify link directly. The bot detects it automatically.\n"
+        "Add <code>force</code> to re-download fresh (e.g. <code>https://... force</code>).\n",
+        "<b>⚡ Commands:</b>\n"
+        "• <code>/search &lt;query&gt;</code> - Browse songs with interactive format selection\n"
+        "• <code>/download &lt;url&gt; [force]</code> - Download default high quality audio\n"
+        "• <code>/video &lt;url&gt; [force]</code> or <code>/dv</code> - Download 720p HD MP4 video\n"
+        "• <code>/da &lt;url&gt; [force]</code> - Choose format & quality (320k, 192k, 64k, 720p, 360p)\n"
+        "• <code>/playlist &lt;url&gt;</code> - Batch download playlist tracks\n"
+        "• <code>/history</code> - View your recent downloads\n"
+        "• <code>/ping</code> - Check bot latency and database connection\n"
+        "• <code>/chatid</code> - Show your Telegram Chat ID"
+    ]
+
+    if is_adm:
+        sections.append(
+            "\n👑 <b>Admin Control Panel:</b>\n"
+            "• <code>/delete &lt;#track_id&gt;</code> (or <code>/del</code>) - Purge track from DB & storage channel\n"
+            "• <code>/cleanup</code> - Purge local temp files, expired DB cache & flush RAM\n"
+            "• <code>/admin</code> - Interactive Admin Control Panel dashboard\n"
+            "• <code>/stats</code> - Real-time system, DB, storage & cache stats\n"
+            "• <code>/cache_clear</code> - Reset in-memory RAM cache\n"
+            "<i>(Tip: You can reply to any song message with <code>/delete</code> to purge it)</i>"
+        )
+
+    await message.answer("\n".join(sections), parse_mode="HTML")
 
 
 @router.message(Command("ping"))

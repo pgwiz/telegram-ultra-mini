@@ -13,31 +13,46 @@ logger = logging.getLogger(__name__)
 router = Router(name="download")
 
 
-def make_quality_keyboard(platform: str, identifier: str) -> InlineKeyboardMarkup:
+def parse_force_arg(raw_text: str) -> tuple[str, bool]:
+    """Check if 'force' or '-f' is passed, returning (cleaned_url, is_forced)."""
+    parts = raw_text.strip().split()
+    is_forced = False
+    clean_parts = []
+    for p in parts:
+        if p.lower() in ("force", "-f", "--force"):
+            is_forced = True
+        else:
+            clean_parts.append(p)
+    return " ".join(clean_parts).strip(), is_forced
+
+
+def make_quality_keyboard(platform: str, identifier: str, force: bool = False) -> InlineKeyboardMarkup:
     """Build quality selection inline keyboard with Audio and Video presets."""
+    suffix = ":force" if force else ""
+    force_tag = "⚡ " if force else ""
     buttons = [
         [
             InlineKeyboardButton(
-                text="🎵 High (320k)",
-                callback_data=f"dl:{platform}:{identifier}:audio_high"
+                text=f"{force_tag}🎵 High (320k)",
+                callback_data=f"dl:{platform}:{identifier}:audio_high{suffix}"
             ),
             InlineKeyboardButton(
-                text="🎶 Normal (192k)",
-                callback_data=f"dl:{platform}:{identifier}:audio"
+                text=f"{force_tag}🎶 Normal (192k)",
+                callback_data=f"dl:{platform}:{identifier}:audio{suffix}"
             ),
             InlineKeyboardButton(
-                text="💾 Saver (64k)",
-                callback_data=f"dl:{platform}:{identifier}:saver"
+                text=f"{force_tag}💾 Saver (64k)",
+                callback_data=f"dl:{platform}:{identifier}:saver{suffix}"
             )
         ],
         [
             InlineKeyboardButton(
-                text="🎬 Video HD (720p)",
-                callback_data=f"dl:{platform}:{identifier}:720p"
+                text=f"{force_tag}🎬 Video HD (720p)",
+                callback_data=f"dl:{platform}:{identifier}:720p{suffix}"
             ),
             InlineKeyboardButton(
-                text="🎬 Video SD (360p)",
-                callback_data=f"dl:{platform}:{identifier}:360p"
+                text=f"{force_tag}🎬 Video SD (360p)",
+                callback_data=f"dl:{platform}:{identifier}:360p{suffix}"
             )
         ]
     ]
@@ -46,13 +61,14 @@ def make_quality_keyboard(platform: str, identifier: str) -> InlineKeyboardMarku
 
 @router.message(Command("da"))
 async def handle_da_command(message: Message):
-    """Handle /da <url> with interactive quality selection (Audio & Video)."""
+    """Handle /da <url> [force] with interactive quality selection (Audio & Video)."""
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer("Usage: <code>/da &lt;youtube or spotify url&gt;</code>", parse_mode="HTML")
+        await message.answer("Usage: <code>/da &lt;youtube or spotify url&gt; [force]</code>", parse_mode="HTML")
         return
 
-    url = args[1].strip()
+    raw_input = args[1].strip()
+    url, is_forced = parse_force_arg(raw_input)
     platform, media_type, identifier = extract_media_info(url)
     if not identifier:
         await message.answer("❌ Could not recognize a valid YouTube or Spotify link.", parse_mode="HTML")
@@ -62,47 +78,51 @@ async def handle_da_command(message: Message):
         await message.answer(f"ℹ️ For playlists, use <code>/playlist {url}</code>", parse_mode="HTML")
         return
 
-    keyboard = make_quality_keyboard(platform, identifier)
-    await message.answer("🎧 <b>Select Format & Quality:</b>", reply_markup=keyboard, parse_mode="HTML")
+    keyboard = make_quality_keyboard(platform, identifier, force=is_forced)
+    force_note = " <i>(⚡ Force Re-download)</i>" if is_forced else ""
+    await message.answer(f"🎧 <b>Select Format & Quality:</b>{force_note}", reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.message(Command("video", "dv"))
 async def handle_video_command(message: Message, bot: Bot):
-    """Handle /video <url> or /dv <url> for direct 720p MP4 video download."""
+    """Handle /video <url> [force] or /dv <url> [force] for direct 720p MP4 video download."""
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer("Usage: <code>/video &lt;youtube url&gt;</code>", parse_mode="HTML")
+        await message.answer("Usage: <code>/video &lt;youtube url&gt; [force]</code>", parse_mode="HTML")
         return
 
-    await process_download(message, bot, args[1].strip(), quality="720p")
+    url, is_forced = parse_force_arg(args[1].strip())
+    await process_download(message, bot, url, quality="720p", force=is_forced)
 
 
 @router.message(Command("download"))
 async def handle_download_command(message: Message, bot: Bot):
-    """Handle /download <url> with default high quality."""
+    """Handle /download <url> [force] with default high quality audio."""
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer("Usage: <code>/download &lt;youtube or spotify url&gt;</code>", parse_mode="HTML")
+        await message.answer("Usage: <code>/download &lt;youtube or spotify url&gt; [force]</code>", parse_mode="HTML")
         return
 
-    await process_download(message, bot, args[1].strip())
+    url, is_forced = parse_force_arg(args[1].strip())
+    await process_download(message, bot, url, force=is_forced)
 
 
 @router.message(F.text)
 async def handle_direct_link(message: Message, bot: Bot):
-    """Auto-detect YouTube/Spotify links, or fallback to search for plain text."""
+    """Auto-detect YouTube/Spotify links (with optional force), or fallback to search for plain text."""
     text = message.text.strip()
     if text.startswith("/"):
         return
 
-    platform, media_type, identifier = extract_media_info(text)
+    clean_text, is_forced = parse_force_arg(text)
+    platform, media_type, identifier = extract_media_info(clean_text)
     if identifier:
         if media_type == "playlist":
             from bot.handlers.playlist import process_playlist
             await process_playlist(message, bot, platform, identifier)
             return
 
-        await process_download(message, bot, text, platform=platform, identifier=identifier)
+        await process_download(message, bot, clean_text, platform=platform, identifier=identifier, force=is_forced)
         return
 
     # Plain text without recognized links: automatically execute search
@@ -116,9 +136,10 @@ async def process_download(
     url_or_id: str,
     platform: str = None,
     identifier: str = None,
-    quality: str = "audio_high"
+    quality: str = "audio_high",
+    force: bool = False
 ):
-    """Core download routine with channel caching check."""
+    """Core download routine with channel caching check and force re-download support."""
     user_id = message.from_user.id if message.from_user else message.chat.id
     
     # 1. Rate limit check
@@ -133,18 +154,22 @@ async def process_download(
             return
         platform, identifier = p, ident
 
-    # 2. Check storage channel cache in Neon DB
-    cached = await storage_manager.deliver_cached(
-        bot=bot,
-        user_chat_id=message.chat.id,
-        track_id=identifier,
-        quality=quality
-    )
-    if cached:
-        return
+    # 2. Check storage channel cache in Neon DB (bypassed if force=True)
+    if not force:
+        cached = await storage_manager.deliver_cached(
+            bot=bot,
+            user_chat_id=message.chat.id,
+            track_id=identifier,
+            quality=quality
+        )
+        if cached:
+            return
+    else:
+        logger.info(f"Force re-download requested for track {identifier} ({quality}), bypassing storage cache.")
 
-    # 3. Cache miss: download from API
-    status_msg = await message.answer("⏳ <i>Extracting stream & audio...</i>", parse_mode="HTML")
+    # 3. Cache miss or forced re-download: download from API
+    status_label = "⚡ <i>Force re-downloading fresh media...</i>" if force else "⏳ <i>Extracting stream & audio...</i>"
+    status_msg = await message.answer(status_label, parse_mode="HTML")
 
     file_path, thumb_path, meta = await downloader.download_track(identifier, quality=quality)
     if not file_path:

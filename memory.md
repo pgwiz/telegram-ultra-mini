@@ -50,6 +50,14 @@
 - **Two-Step Interactive Search UI:**
   - Searching outputs numbered track buttons (1 button per song).
   - Tapping a song edits the message into an Audio vs. Video format selector with a `⬅️ Back to Search Results` button.
+- **Force Re-downloading:**
+  - Appending `force` to commands (`/download <url> force`, `/video <url> force`, `/da <url> force`) or clicking `[ ⚡ Force Re-download ]` in the UI bypasses storage cache.
+  - The freshly downloaded media updates the `channel_storage` row in Neon DB on conflict (`ON CONFLICT (track_id, quality) DO UPDATE SET channel_msg_id = ...`).
+- **Admin Commands & System Maintenance:**
+  - `/delete <#track_id>` / `/del <#track_id>`: Purges track records from Neon DB and deletes messages from the private Telegram storage channel.
+  - `/cleanup`: Purges leftover temp files in `./downloads`, clears expired `api_cache` entries from Neon DB, and flushes RAM cache.
+  - `/admin`: Interactive Control Panel dashboard.
+  - Role-based `/help`: Appends administrative commands only for users matching `ADMIN_CHAT_ID` or flagged as admin in `users` table.
 - **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
 ## Repositories

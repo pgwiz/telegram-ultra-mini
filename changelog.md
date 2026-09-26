@@ -5,6 +5,15 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-26
+
+### Added
+- **Admin Track Purge (`/delete` & `/del`):** Admin-only command to delete cached tracks from both the Neon database (`channel_storage`) and the private Telegram storage channel. Accepts `#<track_id>` (e.g., copied directly from the song caption `#kJQP7kiw5Fk`), `<track_id>`, or by simply replying to any audio/video message with `/delete`.
+- **Force Re-downloading (`force` argument & button):** Users can force a fresh re-download bypassing the storage cache via commands (e.g., `/download <url> force`, `/video <url> force`, `/da <url> force`, `https://... force`) and via an interactive `⚡ Force Re-download` button in the track format menu. The database reference (`channel_msg_id`) is seamlessly updated to the newly uploaded media.
+- **Admin System Cleanup (`/cleanup`):** Dedicated admin command that purges orphaned local temp files in `./downloads`, deletes expired `api_cache` entries from Neon PostgreSQL, and resets the RAM cache, returning a detailed summary of freed disk space and purged records.
+- **Admin Control Panel (`/admin`):** Interactive dashboard with instant buttons for real-time stats (`/stats`), one-click system cleanup (`/cleanup`), and RAM cache resetting (`/cache_clear`).
+- **Dynamic Role-Based Help Menu:** `/help` automatically detects admin status and appends the `👑 Admin Control Panel` command reference for authorized administrators while keeping the interface clean for regular users.
+
 ## [1.3.0] - 2026-09-26
 
 ### Added
