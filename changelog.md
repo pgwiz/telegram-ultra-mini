@@ -5,6 +5,12 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-11
+
+### Fixed
+- **Bot Token Validation & Sanitization:** Added `resolve_bot_token` model validator in `Settings` that automatically strips whitespace and accidental quotes from `TELEGRAM_BOT_TOKEN`, and cleanly falls back to `TELOXIDE_TOKEN` if defined.
+- **Pre-Flight Authentication Guard:** Added proactive `bot.get_me()` credentials verification in `bot/main.py` lifespan to cleanly log invalid or revoked tokens and prevent infinite polling error loops when Telegram responds with HTTP 401 Unauthorized.
+
 ## [1.4.0] - 2026-09-26
 
 ### Added

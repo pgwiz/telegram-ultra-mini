@@ -47,7 +47,20 @@ async def lifespan(app: FastAPI):
     dp = Dispatcher()
     register_all_handlers(dp)
 
-    # 3. Register Telegram command menu
+    # 3. Pre-flight check Bot credentials
+    polling_task = None
+    try:
+        bot_info = await bot.get_me()
+        logger.info(f"Bot authorized: @{bot_info.username} (ID: {bot_info.id})")
+    except Exception as e:
+        logger.error(f"❌ Telegram Bot Token is INVALID or UNAUTHORIZED: {e}")
+        logger.error("Please verify or regenerate your token with @BotFather and update TELEGRAM_BOT_TOKEN in Render environment variables.")
+        yield
+        await bot.session.close()
+        await db.disconnect()
+        return
+
+    # 4. Register Telegram command menu
     try:
         from aiogram.types import BotCommand, BotCommandScopeDefault
         commands = [
@@ -68,20 +81,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not register Telegram commands: {e}")
 
-    # 4. Launch polling as background task inside event loop
+    # 5. Launch polling as background task inside event loop
     logger.info("Starting Telegram bot polling loop...")
     await bot.delete_webhook(drop_pending_updates=True)
     polling_task = asyncio.create_task(dp.start_polling(bot))
 
     yield
 
-    # 4. Graceful Shutdown
+    # 6. Graceful Shutdown
     logger.info("Shutting down background tasks and connection pools...")
-    polling_task.cancel()
-    try:
-        await polling_task
-    except (asyncio.CancelledError, Exception):
-        pass
+    if polling_task:
+        polling_task.cancel()
+        try:
+            await polling_task
+        except (asyncio.CancelledError, Exception):
+            pass
     await bot.session.close()
     await api_client.close()
     await db.disconnect()

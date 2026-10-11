@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = Field(..., description="Bot token from @BotFather")
     TELOXIDE_TOKEN: Optional[str] = Field(None, description="Alias from telegram-ultra")
     ADMIN_CHAT_ID: int = Field(0, description="Telegram User ID of Admin")
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_bot_token(cls, values: dict):
+        if isinstance(values, dict):
+            # Fallback to TELOXIDE_TOKEN if TELEGRAM_BOT_TOKEN is missing
+            token = values.get("TELEGRAM_BOT_TOKEN") or values.get("TELOXIDE_TOKEN")
+            if token and isinstance(token, str):
+                values["TELEGRAM_BOT_TOKEN"] = token.strip().strip('"\'')
+        return values
 
     # Storage Channel (dump channel for audio messages)
     STORAGE_CHANNEL_ID: int = Field(..., description="Private channel ID (-100...)")
