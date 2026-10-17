@@ -75,7 +75,8 @@ async def handle_da_command(message: Message):
         return
 
     if media_type == "playlist":
-        await message.answer(f"ℹ️ For playlists, use <code>/playlist {url}</code>", parse_mode="HTML")
+        from bot.handlers.playlist import start_playlist_flow
+        await start_playlist_flow(message, message.bot, platform, identifier)
         return
 
     keyboard = make_quality_keyboard(platform, identifier, force=is_forced)
@@ -118,8 +119,8 @@ async def handle_direct_link(message: Message, bot: Bot):
     platform, media_type, identifier = extract_media_info(clean_text)
     if identifier:
         if media_type == "playlist":
-            from bot.handlers.playlist import process_playlist
-            await process_playlist(message, bot, platform, identifier)
+            from bot.handlers.playlist import start_playlist_flow
+            await start_playlist_flow(message, bot, platform, identifier)
             return
 
         await process_download(message, bot, clean_text, platform=platform, identifier=identifier, force=is_forced)
@@ -153,6 +154,10 @@ async def process_download(
             await message.answer("❌ Invalid URL or track ID.", parse_mode="HTML")
             return
         platform, identifier = p, ident
+        if m == "playlist":
+            from bot.handlers.playlist import start_playlist_flow
+            await start_playlist_flow(message, bot, platform, identifier)
+            return
 
     # 2. Check storage channel cache in Neon DB (bypassed if force=True)
     if not force:

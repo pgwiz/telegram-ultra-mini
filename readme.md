@@ -58,7 +58,7 @@
 | `/video <url>` | Download video from YouTube (MP4 720p HD) |
 | `/da <url>` | Interactive format picker (`audio_high`, `audio`, `saver`, `720p`, `360p`) |
 | `/search <query>` | Search tracks with 1-click Audio & Video download buttons |
-| `/playlist <url>` | Batch download playlist tracks with live progress |
+| `/playlist <url>` | Batch download playlist tracks with interactive batch sizing (25, 50, 100, All) & 🧠 Smart Mode |
 | `/history` | View your recent download history |
 | `/ping` | Health check with database latency and RAM cache size |
 | `/chatid` | Display your Telegram chat ID |

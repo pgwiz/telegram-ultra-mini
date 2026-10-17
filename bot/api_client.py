@@ -1,7 +1,9 @@
 """Stream Extractor API Client for ytsp-api.pgwiz.cloud with smart caching and retries."""
 
 import asyncio
+import json
 import logging
+import re
 from typing import Optional, Dict, Any, List
 import httpx
 from bot.config import settings
@@ -123,48 +125,145 @@ class StreamApiClient:
 
         return []
 
-    # ── 3. Extract Spotify Playlist / Album Tracks ─────────────────────────
+    # ── 3. Extract Playlist Info & Tracks (Spotify & YouTube) ─────────────
 
-    async def get_spotify_playlist(self, playlist_id: str, limit: int = 25) -> List[Dict[str, Any]]:
+    async def get_playlist_info(self, platform: str, identifier: str, limit: int = 100) -> Dict[str, Any]:
         """
-        Extract Spotify playlist or album tracks (100% keyless).
-        Automatically resolves each track to a matched YouTube videoId.
+        Extract full playlist metadata (title, author, total count) and track list.
+        Supports 100+ tracks for Spotify (keyless embed + stream resolver) and YouTube.
         """
-        cache_key = cache.hash_key("sp_pl", f"{playlist_id}:{limit}")
-        cached_result = await cache.get(cache_key)
-        if cached_result and "tracks" in cached_result:
-            return cached_result["tracks"]
+        cache_key = cache.hash_key("pl_info", f"{platform}:{identifier}:{limit}")
+        cached = await cache.get(cache_key)
+        if cached and "tracks" in cached:
+            return cached
 
-        endpoint = f"/api/spotify/playlist/{playlist_id}"
-        params = {"limit": limit}
-        data = await self._request_with_retry("GET", endpoint, params=params, timeout=60.0)
+        title = "Playlist"
+        author = "Various Artists"
+        total_tracks = 0
+        tracks: List[Dict[str, Any]] = []
 
-        if data:
-            tracks = data.get("tracks") or data.get("results") or []
-            await cache.set(cache_key, {"tracks": tracks}, settings.DB_METADATA_TTL_DAYS * 86400)
-            return tracks
+        if platform == "spotify":
+            # 1. Fetch full tracklist from keyless Spotify embed (returns up to 100 tracks in 200ms)
+            embed_tracks = []
+            try:
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    r = await client.get(f"https://open.spotify.com/embed/playlist/{identifier}", headers=headers, follow_redirects=True)
+                    if r.status_code == 200:
+                        m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', r.text)
+                        if m:
+                            data = json.loads(m.group(1))
+                            entity = data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                            title = entity.get("name") or "Spotify Playlist"
+                            owner = entity.get("owner")
+                            author = owner.get("name") if isinstance(owner, dict) else (owner or "Spotify")
+                            embed_tracks = entity.get("trackList", [])
+                            total_tracks = len(embed_tracks)
+            except Exception as e:
+                logger.warning(f"Error fetching Spotify embed for {identifier}: {e}")
 
-        return []
+            # 2. Fast single attempt to fetch pre-resolved videoId mappings from streaming API
+            api_tracks = []
+            try:
+                client = await self.get_client()
+                api_res = await client.get(f"/api/spotify/playlist/{identifier}", params={"limit": 25}, timeout=8.0)
+                if api_res.status_code == 200:
+                    api_data = api_res.json()
+                    api_tracks = api_data.get("tracks") or api_data.get("results") or []
+                    if not title or title == "Spotify Playlist":
+                        title = api_data.get("title") or api_data.get("name") or "Spotify Playlist"
+                    if not total_tracks:
+                        total_tracks = api_data.get("totalTracks") or len(api_tracks)
+            except Exception as e:
+                logger.debug(f"Streaming API playlist lookup skipped: {e}")
 
-    # ── 4. Extract YouTube Playlist Tracks ─────────────────────────────────
+            # 3. Combine tracks up to requested limit
+            if embed_tracks:
+                for idx, t in enumerate(embed_tracks[:limit]):
+                    video_id = None
+                    if idx < len(api_tracks):
+                        video_id = api_tracks[idx].get("videoId")
+                    tracks.append({
+                        "title": t.get("title") or f"Track {idx+1}",
+                        "name": t.get("title") or f"Track {idx+1}",
+                        "artist": t.get("subtitle") or "Unknown Artist",
+                        "duration": t.get("duration", 0),
+                        "videoId": video_id,
+                        "source": "spotify",
+                        "spotify_uri": t.get("uri")
+                    })
+            elif api_tracks:
+                tracks = api_tracks[:limit]
+                total_tracks = len(tracks)
 
-    async def get_youtube_playlist(self, playlist_id_or_url: str, limit: int = 25) -> List[Dict[str, Any]]:
-        """Extract YouTube playlist / album / mix tracks."""
-        cache_key = cache.hash_key("yt_pl", f"{playlist_id_or_url}:{limit}")
-        cached_result = await cache.get(cache_key)
-        if cached_result and "tracks" in cached_result:
-            return cached_result["tracks"]
+        else:
+            # YouTube Playlist Extraction
+            # 1. Try remote API endpoint
+            try:
+                data = await self._request_with_retry("GET", "/api/youtube/playlist", params={"id": identifier, "limit": limit}, timeout=20.0)
+                if data:
+                    tracks = data.get("tracks") or data.get("items") or []
+                    title = data.get("title") or "YouTube Playlist"
+                    author = data.get("author") or data.get("uploader") or "YouTube"
+                    total_tracks = data.get("total") or len(tracks)
+            except Exception:
+                pass
 
-        endpoint = "/api/youtube/playlist"
-        params = {"id": playlist_id_or_url, "limit": limit}
-        data = await self._request_with_retry("GET", endpoint, params=params)
+            # 2. Emergency fallback: yt-dlp flat playlist extraction
+            if not tracks:
+                try:
+                    target_url = identifier if "http" in identifier else f"https://www.youtube.com/playlist?list={identifier}"
+                    proc = await asyncio.create_subprocess_exec(
+                        "yt-dlp", "--flat-playlist", "--dump-single-json", target_url,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await proc.communicate()
+                    if proc.returncode == 0:
+                        yt_data = json.loads(stdout.decode(errors="ignore"))
+                        title = yt_data.get("title") or "YouTube Playlist"
+                        author = yt_data.get("uploader") or yt_data.get("channel") or "YouTube"
+                        entries = yt_data.get("entries", [])
+                        total_tracks = len(entries)
+                        for e in entries[:limit]:
+                            vid = e.get("id")
+                            if vid:
+                                tracks.append({
+                                    "title": e.get("title") or "Track",
+                                    "name": e.get("title") or "Track",
+                                    "artist": e.get("uploader") or author,
+                                    "duration": e.get("duration", 0),
+                                    "videoId": vid,
+                                    "url": f"https://www.youtube.com/watch?v={vid}",
+                                    "source": "youtube"
+                                })
+                except Exception as e:
+                    logger.error(f"Fallback yt-dlp playlist extraction failed for {identifier}: {e}")
 
-        if data:
-            tracks = data.get("tracks") or data.get("items") or []
-            await cache.set(cache_key, {"tracks": tracks}, settings.DB_METADATA_TTL_DAYS * 86400)
-            return tracks
+        result = {
+            "title": title or "Playlist",
+            "author": author or "Various Artists",
+            "total_tracks": total_tracks or len(tracks),
+            "tracks": tracks,
+            "platform": platform,
+            "identifier": identifier
+        }
 
-        return []
+        if tracks:
+            # Cache metadata for 7 days
+            await cache.set(cache_key, result, settings.DB_METADATA_TTL_DAYS * 86400)
+
+        return result
+
+    async def get_spotify_playlist(self, playlist_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Extract Spotify playlist or album tracks (supports 100+ tracks)."""
+        info = await self.get_playlist_info("spotify", playlist_id, limit=limit)
+        return info.get("tracks", [])
+
+    async def get_youtube_playlist(self, playlist_id_or_url: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Extract YouTube playlist / album / mix tracks (supports 100+ tracks)."""
+        info = await self.get_playlist_info("youtube", playlist_id_or_url, limit=limit)
+        return info.get("tracks", [])
 
     # ── 5. Download & Package Audio Track via API ──────────────────────────
 

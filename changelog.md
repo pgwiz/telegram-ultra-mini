@@ -5,6 +5,24 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-10-17
+
+### Added
+- **Interactive Playlist Batch Sizing & Pre-flight Inspection:**
+  - Before starting any download, the bot inspects playlist metadata (title, author, total track count) and presents an interactive batch selector:
+    - If playlist has $\le 25$ tracks: `[ 🟢 Download All ]`, `[ 🧠 Smart Mode ]`, `[ ❌ Cancel ]`.
+    - If playlist has $> 25$ tracks: `[ 🟢 25 Tracks ]`, `[ 🟡 50 Tracks ]`, `[ 🟠 100 Tracks ]`, `[ 🟣 All (100+) ]`, `[ 🧠 Smart Mode ]`, and `[ ❌ Cancel ]`.
+- **Resilient Smart Mode (Pause on Error):**
+  - Download state machine that automatically pauses on track failure and prompts the user with action choices:
+    - `[ 🔄 Retry Track ]`: re-attempts extraction/download for the failed song (up to 3 retries).
+    - `[ ⏭️ Skip Track ]`: gracefully skips the track and proceeds to the next song in the batch.
+    - `[ 🛑 Stop Batch ]`: halts the download loop immediately and outputs a summary of delivered vs. skipped tracks.
+- **Telegram Bot API 9.4 Button Colors & Semantic Styling:**
+  - Integrated `style` parameter on `InlineKeyboardButton` (`"success"` for green, `"primary"` for blue, `"danger"` for red) paired with high-contrast emoji badges (`🟢`, `🟡`, `🟠`, `🟣`, `🧠`, `🛑`) for backward compatibility on all clients.
+- **Enhanced 100+ Track Playlist Extraction:**
+  - Integrated keyless Spotify embed extraction returning up to 100 tracks in 200ms with on-the-fly YouTube stream resolution for tracks beyond the initial 25.
+  - Implemented asynchronous flat-playlist fallback extraction for YouTube playlists.
+
 ## [1.5.0] - 2026-10-17
 
 ### Added

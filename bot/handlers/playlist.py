@@ -1,10 +1,13 @@
-"""Playlist and album batch download handlers."""
+"""Playlist and album batch download handlers with interactive batch sizing and Smart Mode."""
 
 import asyncio
 import logging
-from aiogram import Router, Bot
+import time
+import uuid
+from typing import Optional, Dict, Any, List
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.utils.link_detector import extract_media_info
 from bot.api_client import api_client
 from bot.storage import storage_manager
@@ -12,6 +15,127 @@ from bot.downloader import downloader
 
 logger = logging.getLogger(__name__)
 router = Router(name="playlist")
+
+
+class PlaylistSession:
+    """In-memory state tracker for active playlist batch downloads."""
+
+    def __init__(
+        self,
+        session_id: str,
+        user_id: int,
+        chat_id: int,
+        platform: str,
+        identifier: str,
+        title: str,
+        author: str,
+        total_available: int,
+        tracks: List[Dict[str, Any]]
+    ):
+        self.session_id = session_id
+        self.user_id = user_id
+        self.chat_id = chat_id
+        self.platform = platform
+        self.identifier = identifier
+        self.title = title
+        self.author = author
+        self.total_available = total_available
+        self.tracks = tracks
+        self.status = "menu"  # "menu", "running", "paused", "stopped", "completed"
+        self.requested_count = min(25, len(tracks))
+        self.smart_mode = False
+        self.completed_count = 0
+        self.failed_count = 0
+        self.action_event = asyncio.Event()
+        self.action_choice = ""  # "retry", "skip", "stop"
+        self.created_at = time.time()
+
+
+ACTIVE_SESSIONS: Dict[str, PlaylistSession] = {}
+
+
+def cleanup_old_sessions() -> None:
+    """Purge sessions older than 2 hours."""
+    now = time.time()
+    expired = [sid for sid, s in ACTIVE_SESSIONS.items() if now - s.created_at > 7200]
+    for sid in expired:
+        ACTIVE_SESSIONS.pop(sid, None)
+
+
+def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
+    """Build interactive batch size selector with Bot API 9.4 semantic styles and emoji indicators."""
+    total = session.total_available
+    buttons = []
+
+    if total <= 25:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🟢 Download All ({total})",
+                callback_data=f"pl:start:{session.session_id}:all:normal",
+                style="success"
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text="🧠 Smart Mode (Pause on Error)",
+                callback_data=f"pl:start:{session.session_id}:all:smart",
+                style="primary"
+            )
+        ])
+    else:
+        # Multiple batches available: 25, 50, 100, All, Smart Mode
+        row1 = [
+            InlineKeyboardButton(
+                text="🟢 25 Tracks",
+                callback_data=f"pl:start:{session.session_id}:25:normal",
+                style="success"
+            )
+        ]
+        if total > 25:
+            row1.append(
+                InlineKeyboardButton(
+                    text="🟡 50 Tracks",
+                    callback_data=f"pl:start:{session.session_id}:50:normal",
+                    style="primary"
+                )
+            )
+        buttons.append(row1)
+
+        row2 = []
+        if total > 50:
+            row2.append(
+                InlineKeyboardButton(
+                    text="🟠 100 Tracks",
+                    callback_data=f"pl:start:{session.session_id}:100:normal",
+                    style="primary"
+                )
+            )
+        row2.append(
+            InlineKeyboardButton(
+                text=f"🟣 All ({total})",
+                callback_data=f"pl:start:{session.session_id}:all:normal",
+                style="primary"
+            )
+        )
+        buttons.append(row2)
+
+        buttons.append([
+            InlineKeyboardButton(
+                text="🧠 Smart Mode (Pause on Error)",
+                callback_data=f"pl:start:{session.session_id}:smart:smart",
+                style="primary"
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="❌ Cancel",
+            callback_data=f"pl:cancel:{session.session_id}",
+            style="danger"
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message(Command("playlist"))
@@ -28,77 +152,363 @@ async def handle_playlist_command(message: Message, bot: Bot):
         await message.answer("❌ Could not recognize a valid playlist link.", parse_mode="HTML")
         return
 
-    await process_playlist(message, bot, platform, identifier)
+    await start_playlist_flow(message, bot, platform, identifier)
 
 
-async def process_playlist(message: Message, bot: Bot, platform: str, identifier: str):
-    """Batch process playlist tracks one-by-one with channel warehousing."""
-    status_msg = await message.answer("🔍 <i>Fetching playlist tracks...</i>", parse_mode="HTML")
+async def start_playlist_flow(message: Message, bot: Bot, platform: str, identifier: str):
+    """Inspect playlist metadata and present interactive batch size selection menu."""
+    cleanup_old_sessions()
+    status_msg = await message.answer("🔍 <i>Inspecting playlist tracks & metadata...</i>", parse_mode="HTML")
 
     try:
-        if platform == "spotify":
-            tracks = await api_client.get_spotify_playlist(identifier, limit=25)
-        else:
-            tracks = await api_client.get_youtube_playlist(identifier, limit=25)
+        info = await api_client.get_playlist_info(platform, identifier, limit=100)
+        tracks = info.get("tracks") or []
+        total_available = info.get("total_tracks") or len(tracks)
 
-        if not tracks:
-            await status_msg.edit_text("❌ Could not retrieve tracks from this playlist.")
+        if not tracks or total_available == 0:
+            await status_msg.edit_text("❌ Could not retrieve tracks from this playlist. Please check the link accessibility.")
             return
 
-        total_tracks = len(tracks)
+        session_id = uuid.uuid4().hex[:8]
+        user_id = message.from_user.id if message.from_user else message.chat.id
+        title = info.get("title") or "Playlist"
+        author = info.get("author") or "Various Artists"
+
+        session = PlaylistSession(
+            session_id=session_id,
+            user_id=user_id,
+            chat_id=message.chat.id,
+            platform=platform,
+            identifier=identifier,
+            title=title,
+            author=author,
+            total_available=total_available,
+            tracks=tracks
+        )
+        ACTIVE_SESSIONS[session_id] = session
+
+        keyboard = build_batch_keyboard(session)
         await status_msg.edit_text(
-            f"📋 <b>Found {total_tracks} tracks.</b>\n"
-            f"⚡ Processing individual tracks (cached tracks deliver instantly)...",
+            f"📋 <b>Playlist:</b> {title}\n"
+            f"👤 <b>Curator:</b> {author}\n"
+            f"🎵 <b>Tracks Available:</b> {total_available}\n\n"
+            f"<i>Choose how many tracks to download:</i>\n"
+            f"💡 <i>Smart Mode pauses on any track failure and lets you Retry, Skip, or Stop.</i>",
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
 
-        completed = 0
-        for idx, track in enumerate(tracks, 1):
+    except Exception as e:
+        logger.error(f"Error starting playlist flow for {identifier}: {e}")
+        await status_msg.edit_text("❌ An error occurred while inspecting the playlist.")
+
+
+# ── Callback Handlers ─────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("pl:start:"))
+async def handle_start_playlist_batch(callback: CallbackQuery, bot: Bot):
+    """Handle batch size and mode selection."""
+    parts = callback.data.split(":")
+    if len(parts) < 5:
+        await callback.answer("Invalid session callback.", show_alert=True)
+        return
+
+    session_id = parts[2]
+    limit_choice = parts[3]
+    mode = parts[4]
+
+    session = ACTIVE_SESSIONS.get(session_id)
+    if not session:
+        await callback.answer("⚠️ Session expired. Please send the playlist link again.", show_alert=True)
+        return
+
+    if callback.from_user.id != session.user_id:
+        await callback.answer("⚠️ This playlist menu belongs to another user.", show_alert=True)
+        return
+
+    # Determine requested limit
+    if limit_choice == "all" or limit_choice == "smart":
+        target_count = len(session.tracks)
+    else:
+        try:
+            target_count = min(int(limit_choice), len(session.tracks))
+        except ValueError:
+            target_count = min(25, len(session.tracks))
+
+    session.requested_count = target_count
+    session.smart_mode = (mode == "smart")
+    session.status = "running"
+    session.tracks = session.tracks[:target_count]
+
+    mode_label = "🧠 Smart Mode" if session.smart_mode else "⚡ Standard Batch"
+    stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🛑 Stop Batch",
+            callback_data=f"pl:stop:{session_id}",
+            style="danger"
+        )
+    ]])
+
+    await callback.message.edit_text(
+        f"⏳ <b>Starting {mode_label}...</b>\n"
+        f"📋 <i>{session.title}</i>\n"
+        f"🎯 Preparing {target_count} tracks for processing...",
+        reply_markup=stop_keyboard,
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+    # Launch batch execution in background task
+    asyncio.create_task(run_playlist_download(session, bot, callback.message))
+
+
+@router.callback_query(F.data.startswith("pl:act:"))
+async def handle_smart_mode_action(callback: CallbackQuery):
+    """Handle Smart Mode user choice on track failure: retry, skip, stop."""
+    parts = callback.data.split(":")
+    if len(parts) < 4:
+        await callback.answer()
+        return
+
+    session_id = parts[2]
+    action = parts[3]
+
+    session = ACTIVE_SESSIONS.get(session_id)
+    if not session:
+        await callback.answer("⚠️ Session expired.", show_alert=True)
+        return
+
+    if callback.from_user.id != session.user_id:
+        await callback.answer("⚠️ Not your session.", show_alert=True)
+        return
+
+    session.action_choice = action
+    session.action_event.set()
+    await callback.answer(f"Action: {action.capitalize()}")
+
+
+@router.callback_query(F.data.startswith("pl:stop:"))
+async def handle_stop_playlist(callback: CallbackQuery):
+    """Handle explicit stop button from user."""
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        await callback.answer()
+        return
+
+    session_id = parts[2]
+    session = ACTIVE_SESSIONS.get(session_id)
+    if not session:
+        await callback.answer("Session already finished.")
+        return
+
+    if callback.from_user.id != session.user_id:
+        await callback.answer("⚠️ Not your session.", show_alert=True)
+        return
+
+    session.status = "stopped"
+    session.action_choice = "stop"
+    session.action_event.set()
+    await callback.answer("🛑 Stopping batch download...")
+
+
+@router.callback_query(F.data.startswith("pl:cancel:"))
+async def handle_cancel_playlist(callback: CallbackQuery):
+    """Cancel playlist before starting."""
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        await callback.answer()
+        return
+
+    session_id = parts[2]
+    session = ACTIVE_SESSIONS.pop(session_id, None)
+    if session and callback.from_user.id != session.user_id:
+        await callback.answer("⚠️ Not your session.", show_alert=True)
+        return
+
+    await callback.message.edit_text("❌ <i>Playlist download cancelled.</i>", parse_mode="HTML")
+    await callback.answer("Cancelled")
+
+
+# ── Batch Download Execution Loop ─────────────────────────────────────────────
+
+async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: Message):
+    """Execute batch download loop with instant channel caching, dynamic resolver, and Smart Mode pause."""
+    total_tracks = len(session.tracks)
+    stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🛑 Stop Batch",
+            callback_data=f"pl:stop:{session.session_id}",
+            style="danger"
+        )
+    ]])
+
+    try:
+        for idx, track in enumerate(session.tracks, 1):
+            if session.status == "stopped":
+                break
+
             title = track.get("title") or track.get("name") or f"Track {idx}"
-            artist = track.get("artist") or track.get("uploader") or "Unknown"
-            video_id = track.get("videoId") or track.get("id")
+            artist = track.get("artist") or track.get("subtitle") or "Unknown Artist"
+            video_id = track.get("videoId")
 
-            if not video_id:
-                continue
+            # Update live progress status
+            mode_tag = " (🧠 Smart Mode)" if session.smart_mode else ""
+            try:
+                await status_msg.edit_text(
+                    f"⏳ <b>Processing [{idx}/{total_tracks}]{mode_tag}:</b>\n"
+                    f"🎵 <b>{title}</b>\n"
+                    f"👤 <i>{artist}</i>",
+                    reply_markup=stop_keyboard,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
-            # Update progress status
-            await status_msg.edit_text(
-                f"⏳ <b>Processing [{idx}/{total_tracks}]:</b>\n"
-                f"🎵 <i>{title}</i>",
-                parse_mode="HTML"
-            )
+            # Smart Mode Retry Loop (up to 3 retries if user chooses retry)
+            max_track_retries = 3
+            track_attempt = 0
+            track_succeeded = False
 
-            # 1. Try instant channel cache delivery
-            delivered = await storage_manager.deliver_cached(
-                bot=bot,
-                user_chat_id=message.chat.id,
-                track_id=video_id,
-                quality="audio_high"
-            )
+            while track_attempt < max_track_retries and not track_succeeded:
+                track_attempt += 1
 
-            # 2. If not cached, download & cache
-            if not delivered:
-                file_path, thumb_path, meta = await downloader.download_track(video_id, quality="audio_high")
+                # 1. Dynamically resolve missing videoId for Spotify tracks
+                if not video_id:
+                    try:
+                        query = f"{title} {artist}"
+                        search_results = await api_client.search_tracks(query, limit=1)
+                        if search_results and search_results[0].get("videoId"):
+                            video_id = search_results[0]["videoId"]
+                            track["videoId"] = video_id
+                    except Exception as res_err:
+                        logger.warning(f"Could not resolve videoId for '{title}': {res_err}")
+
+                # 2. Check instant channel storage cache
+                if video_id:
+                    delivered = await storage_manager.deliver_cached(
+                        bot=bot,
+                        user_chat_id=session.chat.id,
+                        track_id=video_id,
+                        quality="audio_high"
+                    )
+                    if delivered:
+                        session.completed_count += 1
+                        track_succeeded = True
+                        break
+
+                # 3. Download & Cache to channel
+                target_ident = video_id or track.get("url") or f"{title} {artist}"
+                file_path, thumb_path, meta = await downloader.download_track(target_ident, quality="audio_high")
+
                 if file_path:
+                    cached_id = video_id or target_ident
                     await storage_manager.upload_and_cache(
                         bot=bot,
-                        user_chat_id=message.chat.id,
+                        user_chat_id=session.chat.id,
                         file_path=file_path,
-                        track_id=video_id,
+                        track_id=cached_id,
                         quality="audio_high",
                         title=title,
                         artist=artist,
-                        duration=meta.get("duration"),
+                        duration=meta.get("duration") or track.get("duration"),
                         thumbnail_path=thumb_path,
                         source="api_playlist"
                     )
+                    session.completed_count += 1
+                    track_succeeded = True
+                    break
 
-            completed += 1
-            # Respect Telegram flood limits
+                # 4. Handle Track Failure
+                logger.warning(f"Track failed [{idx}/{total_tracks}]: {title} - {artist} (attempt {track_attempt})")
+
+                if session.smart_mode and track_attempt >= 1:
+                    # SMART MODE: Pause and Prompt User
+                    session.status = "paused"
+                    session.action_event.clear()
+                    session.action_choice = ""
+
+                    action_buttons = [
+                        [
+                            InlineKeyboardButton(
+                                text="🔄 Retry Track",
+                                callback_data=f"pl:act:{session.session_id}:retry",
+                                style="success"
+                            ),
+                            InlineKeyboardButton(
+                                text="⏭️ Skip Track",
+                                callback_data=f"pl:act:{session.session_id}:skip",
+                                style="primary"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="🛑 Stop Batch",
+                                callback_data=f"pl:act:{session.session_id}:stop",
+                                style="danger"
+                            )
+                        ]
+                    ]
+
+                    await status_msg.edit_text(
+                        f"⚠️ <b>Track Failed [{idx}/{total_tracks}]:</b>\n"
+                        f"🎵 <b>{title}</b>\n"
+                        f"👤 <i>{artist}</i>\n\n"
+                        f"<i>Download was unsuccessful. What would you like to do?</i>",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=action_buttons),
+                        parse_mode="HTML"
+                    )
+
+                    # Wait up to 10 minutes for user decision
+                    try:
+                        await asyncio.wait_for(session.action_event.wait(), timeout=600.0)
+                    except asyncio.TimeoutError:
+                        session.action_choice = "skip"
+
+                    if session.action_choice == "retry":
+                        session.status = "running"
+                        continue  # retry current track in while loop
+                    elif session.action_choice == "stop":
+                        session.status = "stopped"
+                        break  # stop whole batch
+                    else:
+                        # "skip"
+                        session.status = "running"
+                        break  # skip to next track
+                else:
+                    # Non-smart mode: skip immediately
+                    break
+
+            if not track_succeeded:
+                session.failed_count += 1
+
+            if session.status == "stopped":
+                break
+
+            # Sleep 1.0s to respect Telegram rate limits
             await asyncio.sleep(1.0)
 
-        await status_msg.edit_text(f"✅ <b>Playlist completed!</b> Delivered {completed}/{total_tracks} tracks.", parse_mode="HTML")
+        # Final completion report
+        if session.status == "stopped":
+            await status_msg.edit_text(
+                f"🛑 <b>Playlist batch stopped by user.</b>\n"
+                f"Delivered: <b>{session.completed_count}/{total_tracks}</b> tracks.\n"
+                f"Skipped / Failed: <b>{session.failed_count}</b> tracks.",
+                parse_mode="HTML"
+            )
+        else:
+            session.status = "completed"
+            await status_msg.edit_text(
+                f"✅ <b>Playlist completed!</b>\n"
+                f"Delivered: <b>{session.completed_count}/{total_tracks}</b> tracks.\n"
+                f"{f'⚠️ Skipped: <b>{session.failed_count}</b> tracks.' if session.failed_count > 0 else '🎉 All tracks delivered successfully!'}",
+                parse_mode="HTML"
+            )
 
     except Exception as e:
-        logger.error(f"Playlist error for {identifier}: {e}")
-        await status_msg.edit_text("❌ An error occurred during playlist processing.")
+        logger.error(f"Error during playlist batch download for session {session.session_id}: {e}")
+        try:
+            await status_msg.edit_text("❌ An error occurred during playlist processing.")
+        except Exception:
+            pass
+    finally:
+        ACTIVE_SESSIONS.pop(session.session_id, None)
