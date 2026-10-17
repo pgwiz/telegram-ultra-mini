@@ -16,11 +16,11 @@ from bot.utils.link_detector import extract_media_info
 
 async def run_diagnostics():
     print("=" * 60)
-    print("1. NEON POSTGRESQL CONNECTION & MIGRATION")
+    print("1. DATABASE CONNECTION & MIGRATION CHECK")
     print("=" * 60)
     await db.connect()
     stats = await db.get_stats()
-    print("Neon Database Stats:", stats)
+    print("Database Stats:", stats)
 
     print("\n" + "=" * 60)
     print("2. REGEX LINK DETECTOR")

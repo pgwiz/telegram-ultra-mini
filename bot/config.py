@@ -30,6 +30,15 @@ class Settings(BaseSettings):
             token = values.get("TELEGRAM_BOT_TOKEN") or values.get("TELOXIDE_TOKEN")
             if token and isinstance(token, str):
                 values["TELEGRAM_BOT_TOKEN"] = token.strip().strip('"\'')
+            # Fallback to MONGO_URL if DATABASE_URL is missing
+            if not values.get("DATABASE_URL") and values.get("MONGO_URL"):
+                values["DATABASE_URL"] = values.get("MONGO_URL")
+            if values.get("DATABASE_URL") and isinstance(values.get("DATABASE_URL"), str):
+                values["DATABASE_URL"] = values["DATABASE_URL"].strip().strip('"\'')
+            if values.get("MONGO_URL") and isinstance(values.get("MONGO_URL"), str):
+                values["MONGO_URL"] = values["MONGO_URL"].strip().strip('"\'')
+            if values.get("MONGO_DB_NAME") and isinstance(values.get("MONGO_DB_NAME"), str):
+                values["MONGO_DB_NAME"] = values["MONGO_DB_NAME"].strip().strip('"\'')
         return values
 
     # Storage Channel (dump channel for audio messages)
@@ -40,11 +49,13 @@ class Settings(BaseSettings):
     YTSP_API_TIMEOUT: int = Field(30, description="API HTTP timeout in seconds")
     ENABLE_API_FALLBACK: bool = Field(True, description="Fallback to local yt-dlp if API fails")
 
-    # Database (Neon PostgreSQL or SQLite)
-    DATABASE_URL: Optional[str] = Field(None, description="Database connection URI (PostgreSQL or SQLite)")
+    # Database (MongoDB, Neon PostgreSQL or SQLite)
+    DATABASE_URL: Optional[str] = Field(None, description="Database connection URI (MongoDB, PostgreSQL, or SQLite)")
+    MONGO_URL: Optional[str] = Field(None, description="MongoDB connection URI alias")
+    MONGO_DB_NAME: Optional[str] = Field(None, description="MongoDB database name override")
     DATABASE_PATH: Optional[str] = Field(None, description="SQLite path if used")
-    DB_POOL_MIN_SIZE: int = Field(2, description="Min asyncpg pool connections")
-    DB_POOL_MAX_SIZE: int = Field(10, description="Max asyncpg pool connections")
+    DB_POOL_MIN_SIZE: int = Field(2, description="Min connection pool size")
+    DB_POOL_MAX_SIZE: int = Field(10, description="Max connection pool size")
 
     # MTProto / Telethon
     MPROTO: bool = Field(False, description="Enable MTProto client for files >50MB")

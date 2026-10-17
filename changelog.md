@@ -5,6 +5,21 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-17
+
+### Added
+- **MongoDB Atlas Integration & Multi-Database Namespacing:** Full native asynchronous MongoDB support powered by `motor` and `dnspython`. Supports multi-bot database isolation sharing the same cluster:
+  - If a database name is specified in URI path (`mongodb+srv://.../dbname`), it is used.
+  - If `MONGO_DB_NAME` is configured, it is used.
+  - If omitted, the database name is automatically derived from the bot token ID (e.g. `bot_8908464066` or `bot_8126033137`), preventing collection collisions across multiple bot instances on the same cluster.
+  - Tri-backend compatibility: automatic detection and full backward compatibility with MongoDB Atlas, Neon PostgreSQL, and SQLite.
+  - Automatic startup index creation for unique constraints and fast lookups (`users`, `channel_storage`, `api_cache`, `download_history`, `rate_limits`).
+- **PostgreSQL to MongoDB Migration CLI (`migrate_pg_to_mongo.py`):**
+  - Standalone migration utility that copies all records (`users`, `channel_storage`, `download_history`, `api_cache`, `rate_limits`) from Neon PostgreSQL to MongoDB with automatic data transformation.
+  - Verified 100% row match verification and duplicate-prevention on repeated runs.
+  - Supports CLI flags: `--dry-run`, `--drop-target`, `--pg-url`, `--mongo-url`, `--db-name`.
+- **Configuration Updates:** Added `MONGO_URL` and `MONGO_DB_NAME` settings in `bot/config.py` with quote-stripping and fallback to `DATABASE_URL`.
+
 ## [1.4.1] - 2026-10-11
 
 ### Fixed

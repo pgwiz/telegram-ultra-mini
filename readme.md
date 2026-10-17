@@ -5,16 +5,19 @@
 [![Public Repo](https://img.shields.io/badge/GitHub-pgwiz%2Ftelegram--ultra--mini-blue.svg)](https://github.com/pgwiz/telegram-ultra-mini)
 [![Python Version](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Aiogram Version](https://img.shields.io/badge/aiogram-3.x-green.svg)](https://docs.aiogram.dev/)
-[![Database](https://img.shields.io/badge/Database-Neon%20PostgreSQL-00e599.svg)](https://neon.tech/)
+[![Database](https://img.shields.io/badge/Database-MongoDB%20Atlas%20%7C%20Neon%20Postgres-13aa52.svg)](https://www.mongodb.com/)
 
 ---
 
 ## 🚀 Key Highlights
 
-- **Pure Python, Zero Rust:** Built on `aiogram 3.x` and `asyncpg` for maximum simplicity, maintainability, and low memory consumption.
-- **Cloud Channel Storage Warehousing:** Every downloaded track is forwarded/uploaded to a private Telegram storage channel, with message IDs tracked in Neon PostgreSQL. Re-requested tracks are delivered in milliseconds via Telegram's `copy_message` without re-downloading or consuming server bandwidth.
+- **Pure Python, Zero Rust:** Built on `aiogram 3.x`, `motor`, and `asyncpg` for maximum simplicity, maintainability, and low memory consumption.
+- **MongoDB Atlas & Multi-Bot Namespace Isolation:** Primary database support powered by asynchronous MongoDB (`motor`). Multiple bots can connect to the same MongoDB cluster with zero collision: databases are automatically namespaced by bot token ID (e.g. `bot_8908464066` or `bot_8126033137`) if no explicit database name is specified.
+- **Tri-Backend Database Flexibility:** Native runtime detection supporting MongoDB Atlas, Neon Serverless PostgreSQL, and SQLite with seamless switching via `DATABASE_URL`.
+- **Postgres-to-Mongo Migration CLI:** Includes `migrate_pg_to_mongo.py` to seamlessly transfer all records and rebuild indexes with 100% row match verification.
+- **Cloud Channel Storage Warehousing:** Every downloaded track is forwarded/uploaded to a private Telegram storage channel, with message IDs tracked in MongoDB. Re-requested tracks are delivered in milliseconds via Telegram's `copy_message` without re-downloading or consuming server bandwidth.
 - **Keyless Stream Extractor API:** Deep integration with `https://ytsp-api.pgwiz.cloud` for YouTube & Spotify stream extraction, direct playable links, and Spotify embeds.
-- **Two-Tier Smart Caching:** High-speed in-memory TTLCache (RAM) paired with persistent Neon PostgreSQL tables (7-day metadata TTL, 24-hour search TTL) to avoid redundant API recalls.
+- **Two-Tier Smart Caching:** High-speed in-memory TTLCache (RAM) paired with persistent database cache (7-day metadata TTL, 24-hour search TTL) to avoid redundant API recalls.
 - **Fallback Safety Net:** Automatic emergency fallback to local `yt-dlp` if the remote streaming API is unreachable.
 - **Interactive UI & Search:** 1-click downloads directly from inline search results (`/search`) and quality selection modals (`/da`).
 
@@ -33,8 +36,9 @@
              ┌──────────────────┼──────────────────┐
              ▼                  ▼                  ▼
     ┌─────────────────┐┌─────────────────┐┌─────────────────┐
-    │  Neon Postgres  ││ Storage Channel ││  Stream API     │
-    │  (asyncpg pool) ││ (copy_message)  ││ (ytsp-api.cloud)│
+    │  MongoDB Atlas  ││ Storage Channel ││  Stream API     │
+    │ (motor cluster) ││ (copy_message)  ││ (ytsp-api.cloud)│
+    │ [or Neon / Lite]││                 ││                 │
     └─────────────────┘└─────────────────┘└─────────────────┘
              │                  │                  │
              └──────────┬───────┴──────────────────┘
@@ -83,8 +87,11 @@ YTSP_API_BASE_URL=https://ytsp-api.pgwiz.cloud
 YTSP_API_TIMEOUT=30
 ENABLE_API_FALLBACK=true
 
-# --- Neon PostgreSQL ---
-DATABASE_URL=postgresql://neondb_owner:password@ep-...neon.tech/neondb?sslmode=require
+# --- Database (MongoDB Atlas, Neon PostgreSQL, or SQLite) ---
+# Primary: MongoDB Atlas (Multi-bot namespace: /bot_<bot_id> or ?retryWrites=true)
+DATABASE_URL=mongodb+srv://rtwoft_db_user:0sudhUOXWychqplX@clasto.nlhmbxk.mongodb.net/bot_8126033137?retryWrites=true&w=majority
+# Alternative: Neon Serverless PostgreSQL
+# DATABASE_URL=postgresql://neondb_owner:password@ep-...neon.tech/neondb?sslmode=require
 
 # --- Telethon / MTProto (Optional for files >50MB) ---
 MPROTO=false
@@ -92,6 +99,23 @@ TELEGRAM_API_ID=
 TELEGRAM_API_HASH=
 TELEGRAM_PHONE=
 MTPROTO_SESSION_PATH=./sessions/hermes_session
+```
+
+---
+
+## 🔄 Migrating from PostgreSQL to MongoDB
+
+If upgrading from Neon PostgreSQL to MongoDB, run the automated migration script:
+
+```bash
+# Preview records to be migrated without writing:
+python migrate_pg_to_mongo.py --dry-run
+
+# Run full migration (automatically namespaced to bot token ID or custom --db-name):
+python migrate_pg_to_mongo.py
+
+# Optional: specify custom target DB or drop existing target collections:
+python migrate_pg_to_mongo.py --db-name bot_8908464066 --drop-target
 ```
 
 ---
@@ -118,7 +142,12 @@ MTPROTO_SESSION_PATH=./sessions/hermes_session
    pip install -r requirements.txt
    ```
 
-4. **Run the bot:**
+4. **Verify configuration and database:**
+   ```bash
+   python test_verification.py
+   ```
+
+5. **Run the bot:**
    ```bash
    python -m bot.main
    ```

@@ -1,7 +1,15 @@
-"""Database Manager with Dual Support: Neon PostgreSQL & SQLite Fallback.
+"""Database Manager with Multi-Backend Support: MongoDB Atlas, Neon PostgreSQL & SQLite Fallback.
 
 Features:
-- Neon Lakebase PostgreSQL (Primary):
+- MongoDB Atlas / Cluster (Primary / Migrated):
+  * motor asynchronous driver with connection pooling.
+  * Multi-bot database namespace isolation:
+    - Custom database name from URI path (e.g. mongodb+srv://.../dbname?...)
+    - Or MONGO_DB_NAME env setting
+    - Or auto-derived from bot token ID (e.g. bot_8908464066 or bot_8126033137)
+  * Automatic index creation for fast lookups & unique constraints.
+  * Direct support for channel_storage, users, download_history, api_cache, rate_limits.
+- Neon Lakebase PostgreSQL:
   * asyncpg connection pooling with statement_cache_size=0 for PgBouncer compatibility.
   * Cold-start scale-to-zero exponential backoff connection retry loop.
   * Automatic query-level reconnect and retry on transient connection drops.
@@ -15,10 +23,21 @@ import asyncio
 import json
 import logging
 import os
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
+
 import aiosqlite
 import asyncpg
+
+try:
+    import motor.motor_asyncio
+    from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+    HAS_MOTOR = True
+except ImportError:
+    HAS_MOTOR = False
+    motor = None
+
 from bot.config import settings
 
 logger = logging.getLogger(__name__)
@@ -38,10 +57,19 @@ NEON_TRANSIENT_ERRORS = (
 
 class Database:
     def __init__(self):
+        self.mongo_client: Optional[Any] = None
+        self.mongo_db: Optional[Any] = None
+        self._active_db_name: Optional[str] = None
         self.pg_pool: Optional[asyncpg.Pool] = None
         self.sqlite_conn: Optional[aiosqlite.Connection] = None
         self._keepalive_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+
+    @property
+    def is_mongo(self) -> bool:
+        """Return True if DATABASE_URL or MONGO_URL specifies MongoDB."""
+        db_url = settings.DATABASE_URL or getattr(settings, "MONGO_URL", "") or ""
+        return db_url.startswith("mongodb://") or db_url.startswith("mongodb+srv://")
 
     @property
     def is_postgres(self) -> bool:
@@ -50,31 +78,115 @@ class Database:
         return db_url.startswith("postgresql://") or db_url.startswith("postgres://")
 
     @property
+    def is_sqlite(self) -> bool:
+        """Return True if database is local SQLite."""
+        return not self.is_mongo and not self.is_postgres
+
+    @property
     def is_connected(self) -> bool:
-        return self.pg_pool is not None or self.sqlite_conn is not None
+        return self.mongo_db is not None or self.pg_pool is not None or self.sqlite_conn is not None
 
     @property
     def pool(self) -> Optional[asyncpg.Pool]:
         """Backward-compatible alias for pg_pool."""
         return self.pg_pool
 
+    @property
+    def active_database_name(self) -> Optional[str]:
+        """Return the active database name (e.g. for MongoDB)."""
+        if self.is_mongo and self.mongo_db is not None:
+            return self.mongo_db.name
+        return self._active_db_name
+
+    @staticmethod
+    def resolve_mongo_db_name(uri: str = "", configured_db_name: Optional[str] = None, bot_token: Optional[str] = None) -> str:
+        """Resolve MongoDB database name.
+        
+        Resolution priority:
+        1. Database name in URI path (e.g. mongodb+srv://.../dbname?retryWrites=true)
+        2. Configured MONGO_DB_NAME env / setting
+        3. Bot token ID (e.g. bot_8908464066 or bot_8126033137)
+        4. Fallback default: 'telegram_ultra'
+        """
+        # 1. URI path check
+        if uri:
+            try:
+                parsed = urllib.parse.urlparse(uri)
+                path_part = parsed.path.lstrip("/").strip()
+                if path_part and not path_part.startswith("?"):
+                    name = path_part.split("/")[0].split("?")[0].strip()
+                    if name:
+                        return name
+            except Exception as e:
+                logger.warning(f"Failed parsing MongoDB URI path: {e}")
+
+        # 2. Configured MONGO_DB_NAME
+        if configured_db_name and str(configured_db_name).strip():
+            return str(configured_db_name).strip()
+
+        # 3. Derive from bot token (ID before the colon)
+        if bot_token and ":" in bot_token:
+            bot_id = bot_token.split(":")[0].strip()
+            if bot_id:
+                return f"bot_{bot_id}"
+
+        return "telegram_ultra"
+
     async def connect(self) -> None:
-        """Connect to either Neon PostgreSQL or SQLite based on configuration."""
+        """Connect to MongoDB, Neon PostgreSQL, or SQLite based on configuration."""
         async with self._lock:
             if self.is_connected:
                 return
 
-            db_url = settings.DATABASE_URL or ""
+            db_url = settings.DATABASE_URL or getattr(settings, "MONGO_URL", "") or ""
 
-            if self.is_postgres:
-                # ── Connect to Neon PostgreSQL ──
+            # ── 1. Connect to MongoDB ──
+            if self.is_mongo:
+                if not HAS_MOTOR:
+                    raise ImportError("motor package is required for MongoDB support. Install with: pip install motor dnspython")
+
+                bot_tok = settings.TELEGRAM_BOT_TOKEN or getattr(settings, "TELOXIDE_TOKEN", None)
+                db_name = self.resolve_mongo_db_name(
+                    uri=db_url,
+                    configured_db_name=getattr(settings, "MONGO_DB_NAME", None),
+                    bot_token=bot_tok
+                )
+                self._active_db_name = db_name
+
+                logger.info(f"Connecting to MongoDB cluster (target database: '{db_name}')...")
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        self.mongo_client = motor.motor_asyncio.AsyncIOMotorClient(
+                            db_url,
+                            serverSelectionTimeoutMS=10000,
+                            connectTimeoutMS=10000,
+                            socketTimeoutMS=30000,
+                            maxPoolSize=getattr(settings, "DB_POOL_MAX_SIZE", 10),
+                            minPoolSize=getattr(settings, "DB_POOL_MIN_SIZE", 2)
+                        )
+                        # Verify connectivity
+                        await self.mongo_client.admin.command("ping")
+                        self.mongo_db = self.mongo_client[db_name]
+                        logger.info(f"MongoDB connected successfully to database: '{db_name}'.")
+                        await self._migrate()
+                        return
+                    except Exception as e:
+                        logger.warning(f"MongoDB connection attempt {attempt} failed: {e}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2.0)
+                        else:
+                            logger.error(f"Failed to connect to MongoDB after {max_retries} attempts.")
+                            raise
+
+            # ── 2. Connect to Neon PostgreSQL ──
+            elif self.is_postgres:
                 max_retries = 5
                 base_delay = 1.5
 
                 for attempt in range(1, max_retries + 1):
                     try:
                         logger.info(f"Connecting to Neon PostgreSQL (attempt {attempt}/{max_retries})...")
-                        # statement_cache_size=0 is REQUIRED for PgBouncer / Neon pooled connections
                         self.pg_pool = await asyncpg.create_pool(
                             dsn=db_url,
                             min_size=settings.DB_POOL_MIN_SIZE,
@@ -106,13 +218,17 @@ class Database:
                         else:
                             logger.error("Failed to connect to Neon PostgreSQL after retries.")
                             raise
+
+            # ── 3. Connect to SQLite (Fallback) ──
             else:
-                # ── Connect to SQLite ──
                 db_path = settings.DATABASE_PATH
                 if db_url.startswith("sqlite:///"):
                     db_path = db_url.replace("sqlite:///", "")
                 elif db_url.startswith("sqlite://"):
                     db_path = db_url.replace("sqlite://", "")
+
+                if not db_path:
+                    db_path = "./hermes.db"
 
                 logger.info(f"Connecting to SQLite database at {db_path}...")
                 dir_name = os.path.dirname(os.path.abspath(db_path))
@@ -135,6 +251,12 @@ class Database:
             except asyncio.CancelledError:
                 pass
             self._keepalive_task = None
+
+        if self.mongo_client:
+            self.mongo_client.close()
+            self.mongo_client = None
+            self.mongo_db = None
+            logger.info("MongoDB connection closed.")
 
         if self.pg_pool:
             await self.pg_pool.close()
@@ -185,8 +307,28 @@ class Database:
                     raise
 
     async def _migrate(self) -> None:
-        """Run schema migrations for PostgreSQL or SQLite."""
-        if self.is_postgres:
+        """Run schema migrations / ensure indexes for active backend."""
+        # ── MongoDB Indexes ──
+        if self.is_mongo:
+            logger.info(f"Ensuring MongoDB indexes on database '{self.mongo_db.name}'...")
+            await self.mongo_db.users.create_index("chat_id", unique=True)
+            await self.mongo_db.channel_storage.create_index(
+                [("track_id", 1), ("quality", 1)],
+                unique=True
+            )
+            await self.mongo_db.channel_storage.create_index("track_id")
+            await self.mongo_db.api_cache.create_index("cache_key", unique=True)
+            await self.mongo_db.api_cache.create_index("expires_at")
+            await self.mongo_db.download_history.create_index("user_chat_id")
+            await self.mongo_db.download_history.create_index([("user_chat_id", 1), ("created_at", -1)])
+            await self.mongo_db.rate_limits.create_index(
+                [("user_chat_id", 1), ("action", 1)],
+                unique=True
+            )
+            logger.info("MongoDB indexes verified successfully.")
+
+        # ── PostgreSQL Migrations ──
+        elif self.is_postgres:
             async def _run(conn):
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS users (
@@ -245,6 +387,8 @@ class Database:
                 """)
             await self._execute_pg_with_retry(_run)
             logger.info("Neon PostgreSQL schema migrations applied successfully.")
+
+        # ── SQLite Migrations ──
         else:
             await self.sqlite_conn.executescript("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -310,7 +454,21 @@ class Database:
         if not self.is_connected:
             return None
 
-        if self.is_postgres:
+        if self.is_mongo:
+            doc = await self.mongo_db.channel_storage.find_one(
+                {"track_id": track_id, "quality": quality},
+                {
+                    "_id": 0,
+                    "channel_msg_id": 1,
+                    "telegram_file_id": 1,
+                    "title": 1,
+                    "artist": 1,
+                    "duration_secs": 1,
+                    "file_size_bytes": 1
+                }
+            )
+            return dict(doc) if doc else None
+        elif self.is_postgres:
             async def _run(conn):
                 row = await conn.fetchrow(
                     """
@@ -352,7 +510,29 @@ class Database:
         if not self.is_connected:
             return
 
-        if self.is_postgres:
+        if self.is_mongo:
+            now = datetime.utcnow()
+            await self.mongo_db.channel_storage.update_one(
+                {"track_id": track_id, "quality": quality},
+                {
+                    "$set": {
+                        "channel_msg_id": channel_msg_id,
+                        "telegram_file_id": telegram_file_id,
+                        "title": title,
+                        "artist": artist,
+                        "duration_secs": duration_secs,
+                        "file_size_bytes": file_size_bytes,
+                        "source": source
+                    },
+                    "$setOnInsert": {
+                        "track_id": track_id,
+                        "quality": quality,
+                        "created_at": now
+                    }
+                },
+                upsert=True
+            )
+        elif self.is_postgres:
             async def _run(conn):
                 await conn.execute(
                     """
@@ -397,7 +577,19 @@ class Database:
 
         clean_id = track_id.lstrip("#").strip()
 
-        if self.is_postgres:
+        if self.is_mongo:
+            query = {"track_id": clean_id}
+            if quality:
+                query["quality"] = quality
+            cursor = self.mongo_db.channel_storage.find(query, {"channel_msg_id": 1})
+            msg_ids = []
+            async for doc in cursor:
+                if doc.get("channel_msg_id"):
+                    msg_ids.append(int(doc["channel_msg_id"]))
+            if msg_ids:
+                await self.mongo_db.channel_storage.delete_many(query)
+            return msg_ids
+        elif self.is_postgres:
             async def _run(conn):
                 if quality:
                     rows = await conn.fetch(
@@ -450,7 +642,21 @@ class Database:
         if not self.is_connected:
             return None
 
-        if self.is_postgres:
+        if self.is_mongo:
+            now = datetime.utcnow()
+            doc = await self.mongo_db.api_cache.find_one(
+                {"cache_key": cache_key, "expires_at": {"$gt": now}}
+            )
+            if not doc:
+                return None
+            val = doc.get("response_json")
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return val
+            return val
+        elif self.is_postgres:
             async def _run(conn):
                 row = await conn.fetchrow(
                     "SELECT response_json FROM api_cache WHERE cache_key = $1 AND expires_at > NOW();",
@@ -480,9 +686,26 @@ class Database:
         if not self.is_connected:
             return
 
-        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=ttl_seconds)
 
-        if self.is_postgres:
+        if self.is_mongo:
+            await self.mongo_db.api_cache.update_one(
+                {"cache_key": cache_key},
+                {
+                    "$set": {
+                        "cache_key": cache_key,
+                        "response_json": data,
+                        "expires_at": expires_at,
+                        "updated_at": now
+                    },
+                    "$setOnInsert": {
+                        "created_at": now
+                    }
+                },
+                upsert=True
+            )
+        elif self.is_postgres:
             data_json = json.dumps(data) if not isinstance(data, str) else data
             async def _run(conn):
                 await conn.execute(
@@ -519,7 +742,30 @@ class Database:
 
         is_admin = (chat_id == settings.ADMIN_CHAT_ID)
 
-        if self.is_postgres:
+        if self.is_mongo:
+            now = datetime.utcnow()
+            set_fields = {
+                "chat_id": chat_id,
+                "username": username,
+                "first_name": first_name,
+                "last_active": now
+            }
+            set_on_insert: Dict[str, Any] = {"created_at": now}
+
+            if is_admin:
+                set_fields["is_admin"] = True
+            else:
+                set_on_insert["is_admin"] = False
+
+            await self.mongo_db.users.update_one(
+                {"chat_id": chat_id},
+                {
+                    "$set": set_fields,
+                    "$setOnInsert": set_on_insert
+                },
+                upsert=True
+            )
+        elif self.is_postgres:
             async def _run(conn):
                 await conn.execute(
                     """
@@ -555,7 +801,16 @@ class Database:
         if not self.is_connected:
             return
 
-        if self.is_postgres:
+        if self.is_mongo:
+            await self.mongo_db.download_history.insert_one({
+                "user_chat_id": user_chat_id,
+                "track_id": track_id,
+                "title": title,
+                "quality": quality,
+                "channel_msg_id": channel_msg_id,
+                "created_at": datetime.utcnow()
+            })
+        elif self.is_postgres:
             async def _run(conn):
                 await conn.execute(
                     """
@@ -580,7 +835,16 @@ class Database:
         if not self.is_connected:
             return []
 
-        if self.is_postgres:
+        if self.is_mongo:
+            cursor = self.mongo_db.download_history.find(
+                {"user_chat_id": user_chat_id},
+                {"_id": 0, "track_id": 1, "title": 1, "quality": 1, "channel_msg_id": 1, "created_at": 1}
+            ).sort("created_at", -1).limit(limit)
+            rows = []
+            async for doc in cursor:
+                rows.append(doc)
+            return rows
+        elif self.is_postgres:
             async def _run(conn):
                 rows = await conn.fetch(
                     """
@@ -620,7 +884,46 @@ class Database:
 
         now = datetime.utcnow()
 
-        if self.is_postgres:
+        if self.is_mongo:
+            doc = await self.mongo_db.rate_limits.find_one(
+                {"user_chat_id": user_chat_id, "action": action}
+            )
+            if not doc:
+                await self.mongo_db.rate_limits.insert_one({
+                    "user_chat_id": user_chat_id,
+                    "action": action,
+                    "attempt_count": 1,
+                    "window_start": now
+                })
+                return True
+
+            count = doc.get("attempt_count", 1)
+            start = doc.get("window_start")
+            if isinstance(start, str):
+                try:
+                    start = datetime.fromisoformat(start)
+                except Exception:
+                    start = now
+            elif not isinstance(start, datetime):
+                start = now
+
+            if (now - start).total_seconds() > window_secs:
+                await self.mongo_db.rate_limits.update_one(
+                    {"user_chat_id": user_chat_id, "action": action},
+                    {"$set": {"attempt_count": 1, "window_start": now}}
+                )
+                return True
+
+            if count >= limit:
+                return False
+
+            await self.mongo_db.rate_limits.update_one(
+                {"user_chat_id": user_chat_id, "action": action},
+                {"$inc": {"attempt_count": 1}}
+            )
+            return True
+
+        elif self.is_postgres:
             async def _run(conn):
                 row = await conn.fetchrow(
                     "SELECT attempt_count, window_start FROM rate_limits WHERE user_chat_id = $1 AND action = $2",
@@ -691,12 +994,25 @@ class Database:
                 await self.sqlite_conn.commit()
                 return True
 
+    # ── Statistics & Diagnostics ──────────────────────────────────────────
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get aggregate system statistics."""
         if not self.is_connected:
             return {"status": "disconnected"}
 
-        if self.is_postgres:
+        if self.is_mongo:
+            user_count = await self.mongo_db.users.count_documents({})
+            cached_tracks = await self.mongo_db.channel_storage.count_documents({})
+            total_downloads = await self.mongo_db.download_history.count_documents({})
+            return {
+                "backend": f"MongoDB Atlas ({self.mongo_db.name})",
+                "database_name": self.mongo_db.name,
+                "total_users": user_count or 0,
+                "cached_tracks": cached_tracks or 0,
+                "total_downloads": total_downloads or 0
+            }
+        elif self.is_postgres:
             async def _run(conn):
                 user_count = await conn.fetchval("SELECT COUNT(*) FROM users;")
                 cached_tracks = await conn.fetchval("SELECT COUNT(*) FROM channel_storage;")
@@ -723,11 +1039,15 @@ class Database:
             }
 
     async def cleanup_expired_cache(self) -> int:
-        """Purge expired rows from api_cache table and return count of deleted rows."""
+        """Purge expired rows from api_cache and return count of deleted rows."""
         if not self.is_connected:
             return 0
 
-        if self.is_postgres:
+        if self.is_mongo:
+            now = datetime.utcnow()
+            res = await self.mongo_db.api_cache.delete_many({"expires_at": {"$lt": now}})
+            return res.deleted_count if res else 0
+        elif self.is_postgres:
             async def _run(conn):
                 res = await conn.execute("DELETE FROM api_cache WHERE expires_at < NOW();")
                 try:
@@ -743,7 +1063,7 @@ class Database:
             return count if count and count > 0 else 0
 
     async def is_admin(self, user_id: int) -> bool:
-        """Check if user_id is admin (via ADMIN_CHAT_ID or is_admin flag in users table)."""
+        """Check if user_id is admin (via ADMIN_CHAT_ID or is_admin flag in users table/collection)."""
         if user_id and user_id == settings.ADMIN_CHAT_ID:
             return True
 
@@ -751,7 +1071,10 @@ class Database:
             return False
 
         try:
-            if self.is_postgres:
+            if self.is_mongo:
+                doc = await self.mongo_db.users.find_one({"chat_id": user_id}, {"is_admin": 1})
+                return bool(doc.get("is_admin")) if doc else False
+            elif self.is_postgres:
                 async def _run(conn):
                     val = await conn.fetchval("SELECT is_admin FROM users WHERE chat_id = $1;", user_id)
                     return bool(val)

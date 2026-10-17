@@ -16,15 +16,20 @@
      - `/api/spotify/playlist/:id`: Keyless Spotify playlist extraction.
      - `/api/youtube/playlist`: YouTube playlist extraction.
      - `/stream/play`: Audio proxy stream.
-2. **Neon Serverless PostgreSQL:**
-   - URI: Configured via `DATABASE_URL`.
-   - Driver: `asyncpg` with connection pooling.
-   - Scale-to-Zero & Cold-Start Handling:
-     - PgBouncer compatibility: `statement_cache_size=0` on `create_pool` to avoid prepared statement conflicts on Neon `-pooler` endpoints.
-     - Cold-start wakeup backoff: 5 retries with exponential backoff (1.5s, 3s, 6s, 12s, 24s) allowing suspended compute nodes to spin up.
-     - Query-level retry: `_execute_with_retry` automatically catches `ConnectionResetError` or `CannotConnectNowError`, re-establishes the pool, and re-executes.
-     - Keep-alive ping loop: Optional background task executes `SELECT 1;` every 240 seconds to prevent compute scale-to-zero when desired.
-   - Tables:
+2. **MongoDB Atlas (Primary) & Tri-Backend Database Architecture:**
+   - URI: Configured via `DATABASE_URL` (or alias `MONGO_URL`).
+   - Driver: `motor` (asynchronous) with `pymongo` and `dnspython`.
+   - Multi-Bot Database Isolation:
+     - Allows multiple bots to connect to the same MongoDB cluster with zero collection conflicts.
+     - Auto-derivation priority:
+       1. Path in URI (`mongodb+srv://.../dbname?retryWrites=true`)
+       2. `MONGO_DB_NAME` setting/env override
+       3. Bot token ID extracted from `TELEGRAM_BOT_TOKEN` or `TELOXIDE_TOKEN` (e.g. `bot_8908464066` or `bot_8126033137`)
+       4. Fallback default: `telegram_ultra`
+     - Auto-indexing on startup for `users` (`chat_id` unique), `channel_storage` (`track_id` + `quality` unique), `api_cache` (`cache_key` unique, `expires_at`), `download_history`, and `rate_limits`.
+   - Migration Tool: `migrate_pg_to_mongo.py` transfers records from Neon PostgreSQL to MongoDB Atlas with 100% row match verification.
+   - Fallback Compatibility: Full backward compatibility is preserved for Neon Serverless PostgreSQL (`asyncpg`) and SQLite (`aiosqlite`).
+   - Collections / Tables:
      - `users`: Registered users and admin status.
      - `channel_storage`: Keyed by `(track_id, quality)`, stores `channel_msg_id`, `telegram_file_id`, and metadata.
      - `api_cache`: Persistent JSON cache for metadata (7-day TTL) and search results (24-hour TTL).

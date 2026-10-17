@@ -20,7 +20,9 @@
    - Remote 1: `https://github.com/pgwiz/telegram-ultra-mini.git` (Public)
    - Remote 2: `https://github.com/WiPTechg/telegram-ultra-mini.git` (Private)
    Pushing to `origin` automatically pushes to both remotes.
-6. **Neon PostgreSQL Resilience:**
-   Always preserve `statement_cache_size=0` in `asyncpg` for Neon transaction pooling (`-pooler`), cold-start exponential backoff on connection, and auto-retry on query disconnects.
+6. **Database Architecture & Multi-Bot Namespacing:**
+   - Multi-Backend: Support MongoDB Atlas (primary), Neon PostgreSQL, and SQLite seamlessly via `DATABASE_URL`.
+   - Multi-Bot Isolation: Multiple bots sharing a MongoDB cluster MUST use separated database namespaces automatically derived from bot token ID (`bot_<bot_id>`) unless overridden in URI path or `MONGO_DB_NAME`.
+   - Neon PostgreSQL Resilience: When using Postgres, preserve `statement_cache_size=0` in `asyncpg` for Neon transaction pooling (`-pooler`), cold-start exponential backoff on connection, and auto-retry on query disconnects.
 7. **Render Entrypoint Compatibility:**
    Preserve `your_application/wsgi.py` and `wsgi.py` adapters to support Render's default `gunicorn your_application.wsgi` start command.
