@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, List
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 from bot.utils.link_detector import extract_media_info
 from bot.api_client import api_client
 from bot.storage import storage_manager
@@ -361,6 +362,9 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     reply_markup=stop_keyboard,
                     parse_mode="HTML"
                 )
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram FloodWait on status edit: {e.retry_after}s")
+                await asyncio.sleep(e.retry_after + 0.5)
             except Exception:
                 pass
 
@@ -484,8 +488,8 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             if session.status == "stopped":
                 break
 
-            # Sleep 1.0s to respect Telegram rate limits
-            await asyncio.sleep(1.0)
+            # Sleep 2.0s to respect Telegram rate limits and avoid FloodWait
+            await asyncio.sleep(2.0)
 
         # Final completion report
         if session.status == "stopped":

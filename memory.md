@@ -70,6 +70,7 @@
   - In Smart Mode, any track failure pauses the batch and prompts user: `[ 🔄 Retry Track ]`, `[ ⏭️ Skip Track ]`, `[ 🛑 Stop Batch ]`.
   - Supported with Bot API 9.4 semantic button styles (`success`, `primary`, `danger`) and emoji color badges.
   - Spotify playlists support 100+ tracks via keyless embed parsing and on-the-fly stream resolution.
+  - Rate limiting & FloodWait resilience: Consecutive audio uploads and status edits enforce 2.0s pacing and exponential backoff retry loops on `TelegramRetryAfter` exceptions to prevent Telegram flood-control stalls.
 - **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
 ## Repositories

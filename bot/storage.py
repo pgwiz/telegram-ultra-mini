@@ -7,9 +7,11 @@ instantly via copy_message.
 
 import os
 import logging
+import asyncio
 from typing import Optional, Dict, Any
 from aiogram import Bot
 from aiogram.types import FSInputFile, Message
+from aiogram.exceptions import TelegramRetryAfter
 from bot.config import settings
 from bot.database import db
 
@@ -40,26 +42,31 @@ class StorageManager:
             return False
 
         channel_msg_id = cached["channel_msg_id"]
-        try:
-            # Copy message from storage channel to user chat
-            await bot.copy_message(
-                chat_id=user_chat_id,
-                from_chat_id=self.channel_id,
-                message_id=channel_msg_id
-            )
-            # Record user download history
-            await db.add_history(
-                user_chat_id=user_chat_id,
-                track_id=track_id,
-                title=cached.get("title") or "Audio Track",
-                quality=quality,
-                channel_msg_id=channel_msg_id
-            )
-            logger.info(f"Delivered cached track {track_id} ({quality}) to user {user_chat_id} from channel msg {channel_msg_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to copy_message for {track_id} (msg {channel_msg_id}): {e}")
-            return False
+        for attempt in range(1, 3):
+            try:
+                # Copy message from storage channel to user chat
+                await bot.copy_message(
+                    chat_id=user_chat_id,
+                    from_chat_id=self.channel_id,
+                    message_id=channel_msg_id
+                )
+                # Record user download history
+                await db.add_history(
+                    user_chat_id=user_chat_id,
+                    track_id=track_id,
+                    title=cached.get("title") or "Audio Track",
+                    quality=quality,
+                    channel_msg_id=channel_msg_id
+                )
+                logger.info(f"Delivered cached track {track_id} ({quality}) to user {user_chat_id} from channel msg {channel_msg_id}")
+                return True
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram FloodWait during copy_message ({e.retry_after}s). Sleeping...")
+                await asyncio.sleep(e.retry_after + 1.0)
+            except Exception as e:
+                logger.error(f"Failed to copy_message for {track_id} (msg {channel_msg_id}): {e}")
+                return False
+        return False
 
     async def upload_and_cache(
         self,
@@ -89,72 +96,79 @@ class StorageManager:
             is_video = quality in ("720p", "360p", "best", "video") or file_path.endswith(".mp4")
 
         try:
-            logger.info(f"Uploading {'video' if is_video else 'audio'} {track_id} to storage channel {self.channel_id}...")
-            # 1. Send to private storage channel
-            if is_video:
-                video_input = FSInputFile(file_path, filename=f"{title}.mp4")
-                channel_msg: Message = await bot.send_video(
-                    chat_id=self.channel_id,
-                    video=video_input,
-                    caption=f"🎬 <b>{title}</b>\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}",
-                    duration=duration or 0,
-                    thumbnail=thumb_input,
-                    supports_streaming=True,
-                    parse_mode="HTML"
-                )
-                telegram_file_id = channel_msg.video.file_id if channel_msg.video else None
-            else:
-                ext = os.path.splitext(file_path)[1].lstrip(".") or "mp3"
-                if ext not in ("mp3", "m4a", "ogg", "flac"):
-                    ext = "mp3"
-                audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.{ext}")
-                channel_msg: Message = await bot.send_audio(
-                    chat_id=self.channel_id,
-                    audio=audio_input,
-                    title=title,
-                    performer=artist or "Unknown Artist",
-                    duration=duration or 0,
-                    thumbnail=thumb_input,
-                    caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}"
-                )
-                telegram_file_id = channel_msg.audio.file_id if channel_msg.audio else None
+            for attempt in range(1, 4):
+                try:
+                    logger.info(f"Uploading {'video' if is_video else 'audio'} {track_id} to storage channel {self.channel_id} (attempt {attempt}/3)...")
+                    # 1. Send to private storage channel
+                    if is_video:
+                        video_input = FSInputFile(file_path, filename=f"{title}.mp4")
+                        channel_msg: Message = await bot.send_video(
+                            chat_id=self.channel_id,
+                            video=video_input,
+                            caption=f"🎬 <b>{title}</b>\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}",
+                            duration=duration or 0,
+                            thumbnail=thumb_input,
+                            supports_streaming=True,
+                            parse_mode="HTML"
+                        )
+                        telegram_file_id = channel_msg.video.file_id if channel_msg.video else None
+                    else:
+                        ext = os.path.splitext(file_path)[1].lstrip(".") or "mp3"
+                        if ext not in ("mp3", "m4a", "ogg", "flac"):
+                            ext = "mp3"
+                        audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.{ext}")
+                        channel_msg: Message = await bot.send_audio(
+                            chat_id=self.channel_id,
+                            audio=audio_input,
+                            title=title,
+                            performer=artist or "Unknown Artist",
+                            duration=duration or 0,
+                            thumbnail=thumb_input,
+                            caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}"
+                        )
+                        telegram_file_id = channel_msg.audio.file_id if channel_msg.audio else None
 
-            channel_msg_id = channel_msg.message_id
+                    channel_msg_id = channel_msg.message_id
 
-            # 2. Persist message ID and metadata into Neon DB
-            await db.save_cached_track(
-                track_id=track_id,
-                quality=quality,
-                channel_msg_id=channel_msg_id,
-                telegram_file_id=telegram_file_id,
-                title=title,
-                artist=artist,
-                duration_secs=duration,
-                file_size_bytes=file_size,
-                source=source
-            )
+                    # 2. Persist message ID and metadata into DB
+                    await db.save_cached_track(
+                        track_id=track_id,
+                        quality=quality,
+                        channel_msg_id=channel_msg_id,
+                        telegram_file_id=telegram_file_id,
+                        title=title,
+                        artist=artist,
+                        duration_secs=duration,
+                        file_size_bytes=file_size,
+                        source=source
+                    )
 
-            # 3. Copy message to requesting user
-            await bot.copy_message(
-                chat_id=user_chat_id,
-                from_chat_id=self.channel_id,
-                message_id=channel_msg_id
-            )
+                    # 3. Copy message to requesting user
+                    await bot.copy_message(
+                        chat_id=user_chat_id,
+                        from_chat_id=self.channel_id,
+                        message_id=channel_msg_id
+                    )
 
-            # 4. Log download history
-            await db.add_history(
-                user_chat_id=user_chat_id,
-                track_id=track_id,
-                title=title,
-                quality=quality,
-                channel_msg_id=channel_msg_id
-            )
+                    # 4. Log download history
+                    await db.add_history(
+                        user_chat_id=user_chat_id,
+                        track_id=track_id,
+                        title=title,
+                        quality=quality,
+                        channel_msg_id=channel_msg_id
+                    )
 
-            logger.info(f"Successfully stored and copied track {track_id} (msg {channel_msg_id}) to {user_chat_id}")
-            return True
+                    logger.info(f"Successfully stored and copied track {track_id} (msg {channel_msg_id}) to {user_chat_id}")
+                    return True
 
-        except Exception as e:
-            logger.error(f"Error in upload_and_cache for {track_id}: {e}")
+                except TelegramRetryAfter as e:
+                    logger.warning(f"Telegram FloodWait during upload_and_cache ({e.retry_after}s). Sleeping...")
+                    await asyncio.sleep(e.retry_after + 1.0)
+                except Exception as e:
+                    logger.error(f"Error in upload_and_cache for {track_id}: {e}")
+                    return False
+
             return False
 
         finally:

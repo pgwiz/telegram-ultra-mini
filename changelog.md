@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced 100+ Track Playlist Extraction:**
   - Integrated keyless Spotify embed extraction returning up to 100 tracks in 200ms with on-the-fly YouTube stream resolution for tracks beyond the initial 25.
   - Implemented asynchronous flat-playlist fallback extraction for YouTube playlists.
+- **Telegram FloodWait & Rate Limit Resiliency:**
+  - Added dedicated `TelegramRetryAfter` handlers on `bot.copy_message`, `storage_manager.upload_and_cache`, and status message edits with automatic exponential backoff sleeping.
+  - Increased inter-track execution pacing from 1.0s to 2.0s to prevent Telegram Flood control triggers when processing consecutive audio uploads in large batches.
 
 ## [1.5.0] - 2026-10-17
 
