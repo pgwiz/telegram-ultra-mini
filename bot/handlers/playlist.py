@@ -64,21 +64,21 @@ def cleanup_old_sessions() -> None:
 
 
 def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
-    """Build interactive batch size selector with Bot API 9.4 semantic styles and emoji indicators."""
+    """Build interactive batch size selector with Bot API 9.4 semantic styles."""
     total = session.total_available
     buttons = []
 
     if total <= 25:
         buttons.append([
             InlineKeyboardButton(
-                text=f"🟢 Download All ({total})",
+                text=f"Download All ({total})",
                 callback_data=f"pl:start:{session.session_id}:all:normal",
                 style="success"
             )
         ])
         buttons.append([
             InlineKeyboardButton(
-                text="🧠 Smart Mode (Pause on Error)",
+                text="Smart Mode (Pause on Error)",
                 callback_data=f"pl:start:{session.session_id}:all:smart",
                 style="primary"
             )
@@ -87,7 +87,7 @@ def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
         # Multiple batches available: 25, 50, 100, All, Smart Mode
         row1 = [
             InlineKeyboardButton(
-                text="🟢 25 Tracks",
+                text="25 Tracks",
                 callback_data=f"pl:start:{session.session_id}:25:normal",
                 style="success"
             )
@@ -95,7 +95,7 @@ def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
         if total > 25:
             row1.append(
                 InlineKeyboardButton(
-                    text="🟡 50 Tracks",
+                    text="50 Tracks",
                     callback_data=f"pl:start:{session.session_id}:50:normal",
                     style="primary"
                 )
@@ -106,14 +106,14 @@ def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
         if total > 50:
             row2.append(
                 InlineKeyboardButton(
-                    text="🟠 100 Tracks",
+                    text="100 Tracks",
                     callback_data=f"pl:start:{session.session_id}:100:normal",
                     style="primary"
                 )
             )
         row2.append(
             InlineKeyboardButton(
-                text=f"🟣 All ({total})",
+                text=f"All ({total})",
                 callback_data=f"pl:start:{session.session_id}:all:normal",
                 style="primary"
             )
@@ -122,7 +122,7 @@ def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
 
         buttons.append([
             InlineKeyboardButton(
-                text="🧠 Smart Mode (Pause on Error)",
+                text="Smart Mode (Pause on Error)",
                 callback_data=f"pl:start:{session.session_id}:smart:smart",
                 style="primary"
             )
@@ -130,7 +130,7 @@ def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
 
     buttons.append([
         InlineKeyboardButton(
-            text="❌ Cancel",
+            text="Cancel",
             callback_data=f"pl:cancel:{session.session_id}",
             style="danger"
         )
@@ -241,10 +241,10 @@ async def handle_start_playlist_batch(callback: CallbackQuery, bot: Bot):
     session.status = "running"
     session.tracks = session.tracks[:target_count]
 
-    mode_label = "🧠 Smart Mode" if session.smart_mode else "⚡ Standard Batch"
+    mode_label = "Smart Mode" if session.smart_mode else "Standard Batch"
     stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text="🛑 Stop Batch",
+            text="Stop Batch",
             callback_data=f"pl:stop:{session_id}",
             style="danger"
         )
@@ -337,7 +337,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
     total_tracks = len(session.tracks)
     stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text="🛑 Stop Batch",
+            text="Stop Batch",
             callback_data=f"pl:stop:{session.session_id}",
             style="danger"
         )
@@ -353,7 +353,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             video_id = track.get("videoId")
 
             # Update live progress status
-            mode_tag = " (🧠 Smart Mode)" if session.smart_mode else ""
+            mode_tag = " (Smart Mode)" if session.smart_mode else ""
             try:
                 await status_msg.edit_text(
                     f"⏳ <b>Processing [{idx}/{total_tracks}]{mode_tag}:</b>\n"
@@ -434,19 +434,19 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     action_buttons = [
                         [
                             InlineKeyboardButton(
-                                text="🔄 Retry Track",
+                                text="Retry Track",
                                 callback_data=f"pl:act:{session.session_id}:retry",
                                 style="success"
                             ),
                             InlineKeyboardButton(
-                                text="⏭️ Skip Track",
+                                text="Skip Track",
                                 callback_data=f"pl:act:{session.session_id}:skip",
                                 style="primary"
                             )
                         ],
                         [
                             InlineKeyboardButton(
-                                text="🛑 Stop Batch",
+                                text="Stop Batch",
                                 callback_data=f"pl:act:{session.session_id}:stop",
                                 style="danger"
                             )

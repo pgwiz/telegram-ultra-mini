@@ -67,8 +67,8 @@
   - When a playlist link is received (`/playlist <url>`, `/da <url>`, or direct link), the bot inspects the metadata and presents a batch sizing menu:
     - $\le 25$ tracks: `Download All`, `Smart Mode`, `Cancel`.
     - $> 25$ tracks: `25`, `50`, `100`, `All (100+)`, `Smart Mode`, and `Cancel`.
-  - In Smart Mode, any track failure pauses the batch and prompts user: `[ 🔄 Retry Track ]`, `[ ⏭️ Skip Track ]`, `[ 🛑 Stop Batch ]`.
-  - Supported with Bot API 9.4 semantic button styles (`success`, `primary`, `danger`) and emoji color badges.
+  - In Smart Mode, any track failure pauses the batch and prompts user: `[ Retry Track ]`, `[ Skip Track ]`, `[ Stop Batch ]`.
+  - Styled with clean, native Bot API 9.4 semantic button styles (`success`, `primary`, `danger`) without colored circle or stop emojis.
   - Spotify playlists support 100+ tracks via keyless embed parsing and on-the-fly stream resolution.
   - Rate limiting & FloodWait resilience: Consecutive audio uploads and status edits enforce 2.0s pacing and exponential backoff retry loops on `TelegramRetryAfter` exceptions to prevent Telegram flood-control stalls.
 - **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
