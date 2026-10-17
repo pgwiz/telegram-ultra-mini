@@ -5,6 +5,19 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-10-17
+
+### Added
+- **Pre-Flight Library Scan & Zero Duplicate Downloads:**
+  - Added `find_cached_track` in `bot/database.py` and `StorageManager.find_cached` supporting instant lookups by `track_id` or case-insensitive `(title, artist)` across MongoDB, PostgreSQL, and SQLite.
+  - Playlist selection menu now inspects available tracks and displays `📦 Already in Library: {count} tracks` before the user makes a choice.
+  - Batch download loop now performs a pre-flight library analysis:
+    - Displays upfront breakdown: `📦 Already in Library: X tracks (instant delivery)` and `📥 New to Download: Y tracks`.
+    - Delivers all existing tracks from Telegram storage channel first via `copy_message` with zero re-downloading.
+    - If all selected tracks already exist in library, finishes immediately with 0 downloads required.
+    - Downloads only the tracks that are missing, displaying progress `📥 Downloading [idx/Y]` for the remaining items.
+    - Final completion summary details tracks delivered from library vs. newly downloaded.
+
 ## [1.5.2] - 2026-10-17
 
 ### Fixed

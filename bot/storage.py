@@ -69,6 +69,50 @@ class StorageManager:
                 return False
         return False
 
+    async def find_cached(
+        self,
+        track_id: Optional[str] = None,
+        title: Optional[str] = None,
+        artist: Optional[str] = None,
+        quality: str = "audio_high"
+    ) -> Optional[Dict[str, Any]]:
+        """Search channel storage cache by track_id or title+artist match."""
+        return await db.find_cached_track(track_id=track_id, title=title, artist=artist, quality=quality)
+
+    async def deliver_cached_msg(
+        self,
+        bot: Bot,
+        user_chat_id: int,
+        channel_msg_id: int,
+        track_id: str,
+        title: str,
+        quality: str = "audio_high"
+    ) -> bool:
+        """Deliver track directly using its known channel_msg_id with FloodWait resilience."""
+        for attempt in range(1, 4):
+            try:
+                await bot.copy_message(
+                    chat_id=user_chat_id,
+                    from_chat_id=self.channel_id,
+                    message_id=channel_msg_id
+                )
+                await db.add_history(
+                    user_chat_id=user_chat_id,
+                    track_id=track_id,
+                    title=title,
+                    quality=quality,
+                    channel_msg_id=channel_msg_id
+                )
+                logger.info(f"Delivered cached msg {channel_msg_id} ({title}) to user {user_chat_id}")
+                return True
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram FloodWait during deliver_cached_msg ({e.retry_after}s). Sleeping...")
+                await asyncio.sleep(e.retry_after + 1.0)
+            except Exception as e:
+                logger.error(f"Failed to copy_message for {track_id} (msg {channel_msg_id}): {e}")
+                return False
+        return False
+
     async def upload_and_cache(
         self,
         bot: Bot,

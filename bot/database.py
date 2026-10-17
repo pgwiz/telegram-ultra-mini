@@ -20,6 +20,7 @@ Features:
 """
 
 import asyncio
+import re
 import json
 import logging
 import os
@@ -493,6 +494,110 @@ class Database:
             ) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
+
+    async def find_cached_track(
+        self,
+        track_id: Optional[str] = None,
+        title: Optional[str] = None,
+        artist: Optional[str] = None,
+        quality: str = "audio_high"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find cached track in channel_storage by track_id, OR fallback to title and artist match.
+        Returns dict with channel_msg_id, telegram_file_id, title, artist, duration_secs, track_id if found.
+        """
+        if not self.is_connected:
+            return None
+
+        # 1. Primary lookup by track_id
+        if track_id:
+            cached = await self.get_cached_track(track_id, quality)
+            if cached:
+                cached["track_id"] = track_id
+                return cached
+
+        # 2. Fallback lookup by title (and artist if available)
+        if not title:
+            return None
+
+        clean_title = title.strip()
+        clean_artist = artist.strip() if artist else None
+
+        if self.is_mongo:
+            query: Dict[str, Any] = {
+                "quality": quality,
+                "title": {"$regex": f"^{re.escape(clean_title)}$", "$options": "i"}
+            }
+            if clean_artist and clean_artist.lower() not in ("unknown artist", "unknown", ""):
+                query["artist"] = {"$regex": f"^{re.escape(clean_artist)}$", "$options": "i"}
+
+            doc = await self.mongo_db.channel_storage.find_one(
+                query,
+                {
+                    "_id": 0,
+                    "channel_msg_id": 1,
+                    "telegram_file_id": 1,
+                    "title": 1,
+                    "artist": 1,
+                    "duration_secs": 1,
+                    "file_size_bytes": 1,
+                    "track_id": 1
+                }
+            )
+            return dict(doc) if doc else None
+
+        elif self.is_postgres:
+            async def _run(conn):
+                if clean_artist and clean_artist.lower() not in ("unknown artist", "unknown", ""):
+                    row = await conn.fetchrow(
+                        """
+                        SELECT channel_msg_id, telegram_file_id, title, artist, duration_secs, file_size_bytes, track_id
+                        FROM channel_storage
+                        WHERE quality = $1 AND LOWER(TRIM(title)) = LOWER(TRIM($2))
+                          AND LOWER(TRIM(artist)) = LOWER(TRIM($3))
+                        LIMIT 1;
+                        """,
+                        quality, clean_title, clean_artist
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT channel_msg_id, telegram_file_id, title, artist, duration_secs, file_size_bytes, track_id
+                        FROM channel_storage
+                        WHERE quality = $1 AND LOWER(TRIM(title)) = LOWER(TRIM($2))
+                        LIMIT 1;
+                        """,
+                        quality, clean_title
+                    )
+                return dict(row) if row else None
+            return await self._execute_pg_with_retry(_run)
+
+        else:
+            if clean_artist and clean_artist.lower() not in ("unknown artist", "unknown", ""):
+                async with self.sqlite_conn.execute(
+                    """
+                    SELECT channel_msg_id, telegram_file_id, title, artist, duration_secs, file_size_bytes, track_id
+                    FROM channel_storage
+                    WHERE quality = ? AND LOWER(TRIM(title)) = LOWER(TRIM(?))
+                      AND LOWER(TRIM(artist)) = LOWER(TRIM(?))
+                    LIMIT 1;
+                    """,
+                    (quality, clean_title, clean_artist)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return dict(row) if row else None
+            else:
+                async with self.sqlite_conn.execute(
+                    """
+                    SELECT channel_msg_id, telegram_file_id, title, artist, duration_secs, file_size_bytes, track_id
+                    FROM channel_storage
+                    WHERE quality = ? AND LOWER(TRIM(title)) = LOWER(TRIM(?))
+                    LIMIT 1;
+                    """,
+                    (quality, clean_title)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return dict(row) if row else None
 
     async def save_cached_track(
         self,

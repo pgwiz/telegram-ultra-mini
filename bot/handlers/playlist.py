@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -196,11 +196,25 @@ async def start_playlist_flow(message: Message, bot: Bot, platform: str, identif
         )
         ACTIVE_SESSIONS[session_id] = session
 
+        # Quick pre-scan for tracks already in database cache
+        existing_in_db = 0
+        for t in tracks:
+            t_title = t.get("title") or t.get("name")
+            t_artist = t.get("artist") or t.get("subtitle")
+            t_vid = t.get("videoId")
+            cached = await storage_manager.find_cached(track_id=t_vid, title=t_title, artist=t_artist, quality="audio_high")
+            if cached:
+                existing_in_db += 1
+                t["cached_info"] = cached
+
+        cached_line = f"📦 <b>Already in Library:</b> <code>{existing_in_db}</code> tracks\n" if existing_in_db > 0 else ""
+
         keyboard = build_batch_keyboard(session)
         await status_msg.edit_text(
             f"📋 <b>Playlist:</b> {title}\n"
             f"👤 <b>Curator:</b> {author}\n"
-            f"🎵 <b>Tracks Available:</b> {total_available}\n\n"
+            f"🎵 <b>Tracks Available:</b> {total_available}\n"
+            f"{cached_line}\n"
             f"<i>Choose how many tracks to download:</i>\n"
             f"💡 <i>Smart Mode pauses on any track failure and lets you Retry, Skip, or Stop.</i>",
             reply_markup=keyboard,
@@ -341,7 +355,7 @@ async def handle_cancel_playlist(callback: CallbackQuery):
 # ── Batch Download Execution Loop ─────────────────────────────────────────────
 
 async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: Message):
-    """Execute batch download loop with instant channel caching, dynamic resolver, and Smart Mode pause."""
+    """Execute batch download loop: deliver library tracks first, then download only missing songs."""
     total_tracks = len(session.tracks)
     stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
@@ -352,7 +366,125 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
     ]])
 
     try:
-        for idx, track in enumerate(session.tracks, 1):
+        # 1. Pre-scan batch for existing tracks in database cache
+        cached_tracks: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+        new_tracks: List[Dict[str, Any]] = []
+
+        for track in session.tracks:
+            cached = track.get("cached_info")
+            if not cached:
+                t_title = track.get("title") or track.get("name")
+                t_artist = track.get("artist") or track.get("subtitle")
+                t_vid = track.get("videoId")
+                cached = await storage_manager.find_cached(
+                    track_id=t_vid,
+                    title=t_title,
+                    artist=t_artist,
+                    quality="audio_high"
+                )
+            if cached:
+                cached_tracks.append((track, cached))
+            else:
+                new_tracks.append(track)
+
+        cached_count = len(cached_tracks)
+        to_download_count = len(new_tracks)
+
+        # 2. Show analysis breakdown upfront
+        next_step_hint = "⚡ <i>Delivering library songs first...</i>" if cached_count > 0 else "📥 <i>Starting downloads...</i>"
+        try:
+            await status_msg.edit_text(
+                f"📋 <b>{session.title}</b>\n\n"
+                f"📊 <b>Batch Analysis ({total_tracks} tracks):</b>\n"
+                f"📦 <b>Already in Library:</b> <code>{cached_count}</code> tracks (instant delivery)\n"
+                f"📥 <b>New to Download:</b> <code>{to_download_count}</code> tracks\n\n"
+                f"{next_step_hint}",
+                reply_markup=stop_keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(2.0)
+
+        # 3. Deliver existing tracks from library with zero re-downloading
+        library_delivered = 0
+        for c_idx, (track, cached) in enumerate(cached_tracks, 1):
+            if session.status == "stopped":
+                break
+
+            title = track.get("title") or track.get("name") or f"Track {c_idx}"
+            artist = track.get("artist") or track.get("subtitle") or "Unknown Artist"
+            msg_id = cached.get("channel_msg_id")
+            track_id = cached.get("track_id") or track.get("videoId") or f"cached_{c_idx}"
+
+            try:
+                await status_msg.edit_text(
+                    f"⚡ <b>Delivering from Library [{c_idx}/{cached_count}]:</b>\n"
+                    f"🎵 <b>{title}</b>\n"
+                    f"👤 <i>{artist}</i>",
+                    reply_markup=stop_keyboard,
+                    parse_mode="HTML"
+                )
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after + 0.5)
+            except Exception:
+                pass
+
+            delivered = False
+            if msg_id:
+                delivered = await storage_manager.deliver_cached_msg(
+                    bot=bot,
+                    user_chat_id=session.chat_id,
+                    channel_msg_id=msg_id,
+                    track_id=track_id,
+                    title=title,
+                    quality="audio_high"
+                )
+
+            if delivered:
+                session.completed_count += 1
+                library_delivered += 1
+            else:
+                # If cached message could not be delivered, queue for fresh download
+                new_tracks.append(track)
+
+            await asyncio.sleep(1.5)
+
+        # If all tracks were in library, complete immediately
+        if not new_tracks:
+            session.status = "completed"
+            await status_msg.edit_text(
+                f"🎉 <b>Playlist Complete!</b>\n\n"
+                f"📦 All <b>{library_delivered}</b> tracks were already in your library and delivered instantly!\n"
+                f"🚀 0 new downloads required.",
+                parse_mode="HTML"
+            )
+            return
+
+        if session.status == "stopped":
+            new_downloaded = session.completed_count - library_delivered
+            await status_msg.edit_text(
+                f"🛑 <b>Playlist batch stopped by user.</b>\n"
+                f"Delivered: <b>{session.completed_count}/{total_tracks}</b> tracks.\n"
+                f"📦 From Library: <b>{library_delivered}</b> | 📥 Downloaded: <b>{new_downloaded}</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        # 4. Download remaining tracks that do not exist in library
+        new_total = len(new_tracks)
+        try:
+            await status_msg.edit_text(
+                f"📥 <b>Library delivery complete ({library_delivered} tracks).</b>\n"
+                f"Starting downloads for remaining <b>{new_total}</b> new tracks...",
+                reply_markup=stop_keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(1.5)
+
+        for idx, track in enumerate(new_tracks, 1):
             if session.status == "stopped":
                 break
 
@@ -364,7 +496,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             mode_tag = " (Smart Mode)" if session.smart_mode else ""
             try:
                 await status_msg.edit_text(
-                    f"⏳ <b>Processing [{idx}/{total_tracks}]{mode_tag}:</b>\n"
+                    f"📥 <b>Downloading [{idx}/{new_total}]{mode_tag}:</b>\n"
                     f"🎵 <b>{title}</b>\n"
                     f"👤 <i>{artist}</i>",
                     reply_markup=stop_keyboard,
@@ -384,7 +516,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             while track_attempt < max_track_retries and not track_succeeded:
                 track_attempt += 1
 
-                # 1. Dynamically resolve missing videoId for Spotify tracks
+                # Dynamically resolve missing videoId for Spotify tracks
                 if not video_id:
                     try:
                         query = f"{title} {artist}"
@@ -395,7 +527,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     except Exception as res_err:
                         logger.warning(f"Could not resolve videoId for '{title}': {res_err}")
 
-                # 2. Check instant channel storage cache
+                # Check instant channel storage cache one more time with resolved videoId
                 if video_id:
                     delivered = await storage_manager.deliver_cached(
                         bot=bot,
@@ -408,7 +540,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                         track_succeeded = True
                         break
 
-                # 3. Download & Cache to channel
+                # Download & Cache to channel
                 target_ident = video_id or track.get("url") or f"{title} {artist}"
                 file_path, thumb_path, meta = await downloader.download_track(target_ident, quality="audio_high")
 
@@ -430,8 +562,8 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     track_succeeded = True
                     break
 
-                # 4. Handle Track Failure
-                logger.warning(f"Track failed [{idx}/{total_tracks}]: {title} - {artist} (attempt {track_attempt})")
+                # Handle Track Failure
+                logger.warning(f"Track failed [{idx}/{new_total}]: {title} - {artist} (attempt {track_attempt})")
 
                 if session.smart_mode and track_attempt >= 1:
                     # SMART MODE: Pause and Prompt User
@@ -462,7 +594,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     ]
 
                     await status_msg.edit_text(
-                        f"⚠️ <b>Track Failed [{idx}/{total_tracks}]:</b>\n"
+                        f"⚠️ <b>Track Failed [{idx}/{new_total}]:</b>\n"
                         f"🎵 <b>{title}</b>\n"
                         f"👤 <i>{artist}</i>\n\n"
                         f"<i>Download was unsuccessful. What would you like to do?</i>",
@@ -500,10 +632,12 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             await asyncio.sleep(2.0)
 
         # Final completion report
+        new_downloaded = session.completed_count - library_delivered
         if session.status == "stopped":
             await status_msg.edit_text(
                 f"🛑 <b>Playlist batch stopped by user.</b>\n"
                 f"Delivered: <b>{session.completed_count}/{total_tracks}</b> tracks.\n"
+                f"📦 From Library: <b>{library_delivered}</b> | 📥 Downloaded: <b>{new_downloaded}</b>\n"
                 f"Skipped / Failed: <b>{session.failed_count}</b> tracks.",
                 parse_mode="HTML"
             )
@@ -512,6 +646,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             await status_msg.edit_text(
                 f"✅ <b>Playlist completed!</b>\n"
                 f"Delivered: <b>{session.completed_count}/{total_tracks}</b> tracks.\n"
+                f"📦 From Library: <b>{library_delivered}</b> | 📥 Downloaded: <b>{new_downloaded}</b>\n"
                 f"{f'⚠️ Skipped: <b>{session.failed_count}</b> tracks.' if session.failed_count > 0 else '🎉 All tracks delivered successfully!'}",
                 parse_mode="HTML"
             )
