@@ -5,6 +5,14 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-10-17
+
+### Fixed
+- **Playlist Batch Execution Crash (`AttributeError: 'PlaylistSession' object has no attribute 'chat'`):**
+  - Resolved runtime crash in `run_playlist_download` where `storage_manager.deliver_cached` and `storage_manager.upload_and_cache` referenced `session.chat.id` instead of `session.chat_id`.
+  - Added backward-compatible `@property def chat` on `PlaylistSession` returning a proxy object with `.id` to prevent attribute lookups from crashing.
+  - Added `exc_info=True` to the playlist error handler for complete traceback visibility in production logs.
+
 ## [1.5.1] - 2026-10-17
 
 ### Added

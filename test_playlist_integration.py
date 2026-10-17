@@ -55,6 +55,22 @@ class TestPlaylistBatch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(info.get("tracks", [])), 100)
         self.assertIn("chiki chaka", info.get("title", ""))
 
+    def test_session_chat_id_compatibility(self):
+        """Verify PlaylistSession supports both session.chat_id and session.chat.id seamlessly."""
+        session = PlaylistSession(
+            session_id="test_chat",
+            user_id=12345,
+            chat_id=67890,
+            platform="spotify",
+            identifier="test_pl",
+            title="Chat Test",
+            author="Artist",
+            total_available=1,
+            tracks=[{"title": "Track 1"}]
+        )
+        self.assertEqual(session.chat_id, 67890)
+        self.assertEqual(session.chat.id, 67890)
+
 
 if __name__ == "__main__":
     unittest.main()

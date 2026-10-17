@@ -51,6 +51,14 @@ class PlaylistSession:
         self.action_choice = ""  # "retry", "skip", "stop"
         self.created_at = time.time()
 
+    @property
+    def chat(self):
+        """Compatibility property allowing session.chat.id access."""
+        class _ChatProxy:
+            def __init__(self, cid: int):
+                self.id = cid
+        return _ChatProxy(self.chat_id)
+
 
 ACTIVE_SESSIONS: Dict[str, PlaylistSession] = {}
 
@@ -391,7 +399,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                 if video_id:
                     delivered = await storage_manager.deliver_cached(
                         bot=bot,
-                        user_chat_id=session.chat.id,
+                        user_chat_id=session.chat_id,
                         track_id=video_id,
                         quality="audio_high"
                     )
@@ -408,7 +416,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                     cached_id = video_id or target_ident
                     await storage_manager.upload_and_cache(
                         bot=bot,
-                        user_chat_id=session.chat.id,
+                        user_chat_id=session.chat_id,
                         file_path=file_path,
                         track_id=cached_id,
                         quality="audio_high",
@@ -509,7 +517,7 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             )
 
     except Exception as e:
-        logger.error(f"Error during playlist batch download for session {session.session_id}: {e}")
+        logger.error(f"Error during playlist batch download for session {session.session_id}: {e}", exc_info=True)
         try:
             await status_msg.edit_text("❌ An error occurred during playlist processing.")
         except Exception:
