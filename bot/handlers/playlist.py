@@ -519,7 +519,13 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
     except Exception as e:
         logger.error(f"Error during playlist batch download for session {session.session_id}: {e}", exc_info=True)
         try:
-            await status_msg.edit_text("❌ An error occurred during playlist processing.")
+            err_msg = str(e).strip() or type(e).__name__
+            if len(err_msg) > 120:
+                err_msg = err_msg[:120] + "..."
+            await status_msg.edit_text(
+                f"❌ <b>An error occurred during playlist processing:</b>\n<code>{err_msg}</code>",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
     finally:

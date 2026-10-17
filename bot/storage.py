@@ -6,6 +6,7 @@ instantly via copy_message.
 """
 
 import os
+import re
 import logging
 import asyncio
 from typing import Optional, Dict, Any
@@ -95,18 +96,33 @@ class StorageManager:
         if is_video is None:
             is_video = quality in ("720p", "360p", "best", "video") or file_path.endswith(".mp4")
 
+        # Ensure duration is always an integer number of seconds (convert ms if > 10000)
+        safe_duration = 0
+        if duration is not None:
+            try:
+                if isinstance(duration, (int, float)) and duration > 10000:
+                    safe_duration = int(duration // 1000)
+                else:
+                    safe_duration = int(duration)
+            except Exception:
+                safe_duration = 0
+
+        # Sanitize filenames for Telegram multipart upload
+        clean_title = re.sub(r'[\\/*?:"<>|\r\n]+', "", title).strip() or "Track"
+        clean_artist = re.sub(r'[\\/*?:"<>|\r\n]+', "", artist or "Artist").strip() or "Artist"
+
         try:
             for attempt in range(1, 4):
                 try:
                     logger.info(f"Uploading {'video' if is_video else 'audio'} {track_id} to storage channel {self.channel_id} (attempt {attempt}/3)...")
                     # 1. Send to private storage channel
                     if is_video:
-                        video_input = FSInputFile(file_path, filename=f"{title}.mp4")
+                        video_input = FSInputFile(file_path, filename=f"{clean_title}.mp4")
                         channel_msg: Message = await bot.send_video(
                             chat_id=self.channel_id,
                             video=video_input,
                             caption=f"🎬 <b>{title}</b>\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}",
-                            duration=duration or 0,
+                            duration=safe_duration,
                             thumbnail=thumb_input,
                             supports_streaming=True,
                             parse_mode="HTML"
@@ -116,13 +132,13 @@ class StorageManager:
                         ext = os.path.splitext(file_path)[1].lstrip(".") or "mp3"
                         if ext not in ("mp3", "m4a", "ogg", "flac"):
                             ext = "mp3"
-                        audio_input = FSInputFile(file_path, filename=f"{artist or 'Artist'} - {title}.{ext}")
+                        audio_input = FSInputFile(file_path, filename=f"{clean_artist} - {clean_title}.{ext}")
                         channel_msg: Message = await bot.send_audio(
                             chat_id=self.channel_id,
                             audio=audio_input,
                             title=title,
                             performer=artist or "Unknown Artist",
-                            duration=duration or 0,
+                            duration=safe_duration,
                             thumbnail=thumb_input,
                             caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}\n🆔 #{track_id}"
                         )
@@ -138,7 +154,7 @@ class StorageManager:
                         telegram_file_id=telegram_file_id,
                         title=title,
                         artist=artist,
-                        duration_secs=duration,
+                        duration_secs=safe_duration,
                         file_size_bytes=file_size,
                         source=source
                     )
@@ -166,7 +182,7 @@ class StorageManager:
                     logger.warning(f"Telegram FloodWait during upload_and_cache ({e.retry_after}s). Sleeping...")
                     await asyncio.sleep(e.retry_after + 1.0)
                 except Exception as e:
-                    logger.error(f"Error in upload_and_cache for {track_id}: {e}")
+                    logger.error(f"Error in upload_and_cache for {track_id}: {e}", exc_info=True)
                     return False
 
             return False

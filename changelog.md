@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved runtime crash in `run_playlist_download` where `storage_manager.deliver_cached` and `storage_manager.upload_and_cache` referenced `session.chat.id` instead of `session.chat_id`.
   - Added backward-compatible `@property def chat` on `PlaylistSession` returning a proxy object with `.id` to prevent attribute lookups from crashing.
   - Added `exc_info=True` to the playlist error handler for complete traceback visibility in production logs.
+- **Upload & Storage Hardening:**
+  - Added duration coercion in `StorageManager.upload_and_cache` guaranteeing integer second values (safely converting Spotify millisecond durations).
+  - Added regex filename sanitization for `FSInputFile` to strip forbidden characters (`/`, `\`, `"`, etc.).
+  - Added numeric string sanitization in `Settings.resolve_bot_token` for `STORAGE_CHANNEL_ID` and `ADMIN_CHAT_ID`.
+  - Added detailed exception rendering in user-facing status messages for immediate error transparency.
 
 ## [1.5.1] - 2026-10-17
 

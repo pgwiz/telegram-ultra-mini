@@ -39,6 +39,16 @@ class Settings(BaseSettings):
                 values["MONGO_URL"] = values["MONGO_URL"].strip().strip('"\'')
             if values.get("MONGO_DB_NAME") and isinstance(values.get("MONGO_DB_NAME"), str):
                 values["MONGO_DB_NAME"] = values["MONGO_DB_NAME"].strip().strip('"\'')
+            if values.get("STORAGE_CHANNEL_ID") and isinstance(values["STORAGE_CHANNEL_ID"], str):
+                try:
+                    values["STORAGE_CHANNEL_ID"] = int(values["STORAGE_CHANNEL_ID"].strip().strip('"\''))
+                except ValueError:
+                    pass
+            if values.get("ADMIN_CHAT_ID") and isinstance(values["ADMIN_CHAT_ID"], str):
+                try:
+                    values["ADMIN_CHAT_ID"] = int(values["ADMIN_CHAT_ID"].strip().strip('"\''))
+                except ValueError:
+                    pass
         return values
 
     # Storage Channel (dump channel for audio messages)
