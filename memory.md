@@ -65,10 +65,10 @@
   - Role-based `/help`: Appends administrative commands only for users matching `ADMIN_CHAT_ID` or flagged as admin in `users` table.
 - **Interactive Playlist Batch Sizing & Smart Mode:**
   - When a playlist link is received (`/playlist <url>`, `/da <url>`, or direct link), the bot inspects the metadata and presents a batch sizing menu:
-    - $\le 25$ tracks: `📥 Download All`, `🧠 Smart Mode (Pause on Error)`, `❌ Cancel`.
-    - $> 25$ tracks: `🟢 25 Tracks`, `🔵 50 Tracks`, `🟣 100 Tracks`, `⚡ All ({total})`, `🧠 Smart Mode (Pause on Error)`, and `❌ Cancel`.
-  - In Smart Mode, any track failure pauses the batch and prompts user: `[ 🔄 Retry Track ]`, `[ ⏭ Skip Track ]`, `[ 🛑 Stop Batch ]`.
-  - Styled with vibrant colored emojis alongside Bot API 9.4 semantic button styles (`success`, `primary`, `danger`).
+    - $\le 25$ tracks: `Download All`, `Smart Mode (Pause on Error)`, `Cancel`.
+    - $> 25$ tracks: `25 Tracks`, `50 Tracks`, `100 Tracks`, `All ({total})`, `Smart Mode (Pause on Error)`, and `Cancel`.
+  - In Smart Mode, any track failure pauses the batch and prompts user: `[ Retry Track ]`, `[ Skip Track ]`, `[ Stop Batch ]`.
+  - Styled with clean typography and Bot API 9.4 semantic button styles (`success`, `primary`, `danger`) with zero emojis.
   - Spotify playlists support 100+ tracks via keyless embed parsing and on-the-fly stream resolution.
   - Rate limiting & FloodWait resilience: Consecutive audio uploads and status edits enforce 2.0s pacing and exponential backoff retry loops on `TelegramRetryAfter` exceptions to prevent Telegram flood-control stalls.
   - Pre-flight library analysis: Automatically scans tracks against database cache (`track_id` and case-insensitive `title`+`artist`). Pre-flight menu shows `Already in Library: X tracks`. During execution, existing tracks are delivered directly from Telegram channel storage first, and the bot downloads ONLY what is missing (`[idx/new_total]`).
@@ -76,10 +76,11 @@
 - **Classic Huawei Fat AP Web Management Console (`/channel` & `/channels`):**
   - Secured web console route accessible with secret admin token (`/channel?token=...`).
   - Authentic hardware router theme modeled after the Huawei AP6010SN-GN Fat AP management console (`UI by pgwiz`).
+  - Pure vector design: 100% zero emojis; all icons rendered as crisp SVG vectors (tabs, status LEDs, action buttons, admin controls, alert banners).
   - Features red Huawei fan branding, active IP indicator (`192.168.21.80 Net: Online`), working `[ Dark ]` / `[ Light ]` theme toggle with `localStorage` persistence, and shortcut to Telegram.
   - Tabbed interface (`Overview`, `Storage Channel`, `Admins`, `Logs`).
   - Displays hardware telemetry (Uptime, RAM, DB engine, Channel status, Posting rights, Bot membership, Total cached audio count).
-  - ACTIONS control panel with router-style buttons (`Refresh`, `Open Channel ↗`, `Clear RAM Cache`, `Reboot`), Pure Access Point / Media Gateway operating mode indicator, and interactive multi-tab QR code generator (`Secure Channel`, `Bot Chat`, `Admin Web`).
+  - ACTIONS control panel with router-style buttons (`Refresh`, `Open Channel`, `Clear RAM Cache`, `Reboot`), Pure Access Point / Media Gateway operating mode indicator, and interactive multi-tab QR code generator (`Secure Channel`, `Bot Chat`, `Admin Web`).
 - **Native Channel & User Telegram Selectors:**
   - Added reply keyboard with `KeyboardButtonRequestChat` and `KeyboardButtonRequestUsers`/`KeyboardButtonRequestUser`.
   - `📢 Choose Storage Channel`: Opens native picker modal; on selection (`F.chat_shared`), binds storage channel and runs permissions diagnostics.

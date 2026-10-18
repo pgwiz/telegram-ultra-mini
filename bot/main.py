@@ -435,21 +435,21 @@ async def channel_manager_web(
                 try:
                     target_aid = int(admin_id_val.strip())
                     await db.set_user_admin(target_aid, is_admin=True)
-                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Added Admin User ID <b>{target_aid}</b>!</div>'
+                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Added Admin User ID <b>{target_aid}</b>!</div>'
                 except ValueError:
-                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Admin User ID. Must be a numeric Telegram ID.</div>'
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Invalid Admin User ID. Must be a numeric Telegram ID.</div>'
         elif action == "del_admin":
             admin_id_val = parsed.get("del_admin_id", [None])[0] or request.query_params.get("del_admin_id")
             if admin_id_val:
                 try:
                     target_aid = int(admin_id_val.strip())
                     if target_aid == settings.ADMIN_CHAT_ID:
-                        feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">⚠️ Cannot remove the Primary Bot Owner.</div>'
+                        feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Cannot remove the Primary Bot Owner.</div>'
                     else:
                         await db.set_user_admin(target_aid, is_admin=False)
-                        feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">🗑 Revoked Admin rights for User ID <b>{target_aid}</b>.</div>'
+                        feedback_html = f'<div style="background:#065f46;color:#34d399;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Revoked Admin rights for User ID <b>{target_aid}</b>.</div>'
                 except ValueError:
-                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Admin User ID.</div>'
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Invalid Admin User ID.</div>'
         else:
             channel_id = parsed.get("channel_id", [None])[0] or request.query_params.get("channel_id")
             if channel_id:
@@ -457,9 +457,9 @@ async def channel_manager_web(
                 try:
                     new_cid = int(clean_cid)
                     await storage_manager.set_channel_id(new_cid)
-                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Storage Channel ID updated to <b>{new_cid}</b>!</div>'
+                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Storage Channel ID updated to <b>{new_cid}</b>!</div>'
                 except ValueError:
-                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
 
     cid = await storage_manager.sync_channel_id()
     bot = ACTIVE_BOT or Bot(token=settings.TELEGRAM_BOT_TOKEN)
@@ -531,20 +531,42 @@ async def channel_manager_web(
     m, s = divmod(r, 60)
     uptime_str = f"{d}d {h}h {m}m" if d else (f"{h}h {m}m" if h else f"{m}m {s}s")
 
-    status_badge = '<span style="color:#16a34a;font-weight:700;">🟢 Online / Connected</span>' if is_accessible else '<span style="color:#dc2626;font-weight:700;">🔴 Inaccessible</span>'
-    net_pill = "🟢 192.168.21.80 Net: Online" if is_accessible else "🔴 192.168.21.80 Net: Attention"
+    status_badge = (
+        '<span style="color:#16a34a;font-weight:700;display:inline-flex;align-items:center;gap:5px;">'
+        '<svg width="9" height="9" viewBox="0 0 24 24" fill="#16a34a"><circle cx="12" cy="12" r="10"/></svg> '
+        'Online / Connected</span>'
+    ) if is_accessible else (
+        '<span style="color:#dc2626;font-weight:700;display:inline-flex;align-items:center;gap:5px;">'
+        '<svg width="9" height="9" viewBox="0 0 24 24" fill="#dc2626"><circle cx="12" cy="12" r="10"/></svg> '
+        'Inaccessible</span>'
+    )
+
+    net_pill = (
+        '<span style="display:inline-flex;align-items:center;gap:6px;">'
+        '<svg width="9" height="9" viewBox="0 0 24 24" fill="#16a34a"><circle cx="12" cy="12" r="10"/></svg> '
+        '192.168.21.80 Net: Online</span>'
+    ) if is_accessible else (
+        '<span style="display:inline-flex;align-items:center;gap:6px;">'
+        '<svg width="9" height="9" viewBox="0 0 24 24" fill="#dc2626"><circle cx="12" cy="12" r="10"/></svg> '
+        '192.168.21.80 Net: Attention</span>'
+    )
 
     open_btn_html = ""
     if open_link:
-        open_btn_html = f'<a href="{open_link}" target="_blank" class="btn-classic">📢 Open Storage Channel in Telegram ↗</a>'
+        open_btn_html = (
+            f'<a href="{open_link}" target="_blank" class="btn-classic" style="display:inline-flex;align-items:center;gap:5px;">'
+            f'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
+            f'Open Storage Channel in Telegram</a>'
+        )
     else:
         open_btn_html = f'<span style="color:var(--text-muted);font-size:12px;">Add bot to channel to generate invite link</span>'
 
     error_box_html = ""
     if not is_accessible:
         error_box_html = f"""
-        <div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;padding:10px 14px;border-radius:2px;margin:12px 0;font-size:12px;">
-            <strong>⚠️ Channel Error:</strong> {error_msg}
+        <div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;padding:10px 14px;border-radius:2px;margin:12px 0;font-size:12px;display:flex;align-items:center;gap:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div><strong>Channel Error:</strong> {error_msg}</div>
         </div>
         """
 
@@ -553,7 +575,7 @@ async def channel_manager_web(
     admin_rows = []
     for aid in admins:
         is_owner = (owner_id is not None and aid == owner_id)
-        role_badge = '<span style="border:1px solid #000;background:#000;color:#fff;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:700;">👑 OWNER</span>' if is_owner else '<span style="border:1px solid var(--btn-border);color:var(--text-main);padding:1px 6px;border-radius:2px;font-size:10px;font-weight:600;">ADMIN</span>'
+        role_badge = '<span style="border:1px solid #000;background:#000;color:#fff;padding:1px 6px;border-radius:2px;font-size:10px;font-weight:700;">OWNER</span>' if is_owner else '<span style="border:1px solid var(--btn-border);color:var(--text-main);padding:1px 6px;border-radius:2px;font-size:10px;font-weight:600;">ADMIN</span>'
 
         del_btn = ""
         if not is_owner:
@@ -561,7 +583,7 @@ async def channel_manager_web(
             <form method="POST" action="/channel?token={req_token}" style="display:inline;margin:0;">
                 <input type="hidden" name="action" value="del_admin">
                 <input type="hidden" name="del_admin_id" value="{aid}">
-                <button type="submit" class="btn-classic btn-danger" style="padding:1px 6px;font-size:11px;">Remove</button>
+                <button type="submit" class="btn-classic btn-danger" style="padding:1px 6px;font-size:11px;display:inline-flex;align-items:center;gap:3px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Remove</button>
             </form>
             '''
 
@@ -569,7 +591,9 @@ async def channel_manager_web(
         <tr>
             <td style="padding:6px 8px;font-family:monospace;font-size:12px;">{aid}</td>
             <td style="padding:6px 8px;">{role_badge}</td>
-            <td style="padding:6px 8px;color:#16a34a;font-weight:600;font-size:11px;">● Active</td>
+            <td style="padding:6px 8px;color:#16a34a;font-weight:600;font-size:11px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;"><svg width="7" height="7" viewBox="0 0 24 24" fill="#16a34a"><circle cx="12" cy="12" r="10"/></svg> Active</span>
+            </td>
             <td style="padding:6px 8px;text-align:right;">{del_btn}</td>
         </tr>
         ''')
@@ -868,17 +892,35 @@ async def channel_manager_web(
             </div>
             <div class="top-right">
                 <span class="status-pill">{net_pill}</span>
-                <button id="btn-theme" class="btn-classic" onclick="toggleTheme()">Dark</button>
-                <a href="{open_link or 'https://t.me/popoxstbot'}" target="_blank" class="btn-classic">Telegram ↗</a>
+                <button id="btn-theme" class="btn-classic" onclick="toggleTheme()" style="display:inline-flex;align-items:center;gap:4px;">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    <span id="theme-lbl">Dark</span>
+                </button>
+                <a href="{open_link or 'https://t.me/popoxstbot'}" target="_blank" class="btn-classic" style="display:inline-flex;align-items:center;gap:5px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    Telegram
+                </a>
             </div>
         </div>
 
         <!-- Navigation Tabs -->
         <div class="tabs-bar">
-            <div class="tab-btn active" id="tb-overview" onclick="showTab('overview')"><span>📑</span> Overview</div>
-            <div class="tab-btn" id="tb-channel" onclick="showTab('channel')"><span>📢</span> Storage Channel</div>
-            <div class="tab-btn" id="tb-admins" onclick="showTab('admins')"><span>👥</span> Admins ( {len(admins)} )</div>
-            <div class="tab-btn" id="tb-logs" onclick="showTab('logs')"><span>📜</span> Logs</div>
+            <div class="tab-btn active" id="tb-overview" onclick="showTab('overview')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+                Overview
+            </div>
+            <div class="tab-btn" id="tb-channel" onclick="showTab('channel')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+                Storage Channel
+            </div>
+            <div class="tab-btn" id="tb-admins" onclick="showTab('admins')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Admins ( {len(admins)} )
+            </div>
+            <div class="tab-btn" id="tb-logs" onclick="showTab('logs')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                Logs
+            </div>
         </div>
 
         {feedback_html}
@@ -950,10 +992,22 @@ async def channel_manager_web(
                 <div>
                     <div class="sec-head">ACTIONS</div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-                        <button class="btn-classic" onclick="location.reload()">Refresh</button>
-                        <a href="{open_link or '#'}" target="_blank" class="btn-classic">Open Channel ↗</a>
-                        <button class="btn-classic" onclick="clearRam()">Clear RAM Cache</button>
-                        <button class="btn-classic btn-danger" onclick="confirmReset()">Reboot</button>
+                        <button class="btn-classic" onclick="location.reload()" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            Refresh
+                        </button>
+                        <a href="{open_link or '#'}" target="_blank" class="btn-classic" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            Open Channel
+                        </a>
+                        <button class="btn-classic" onclick="clearRam()" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            Clear RAM Cache
+                        </button>
+                        <button class="btn-classic btn-danger" onclick="confirmReset()" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                            Reboot
+                        </button>
                     </div>
 
                     <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--row-border);padding-bottom:6px;font-size:12px;">
@@ -1001,12 +1055,18 @@ async def channel_manager_web(
                 <form method="POST" action="/channel?token={req_token}">
                     <label style="color:var(--text-muted);font-weight:600;font-size:12px;">Storage Channel ID (e.g. <code>-100...</code>):</label>
                     <input type="text" name="channel_id" value="{cid}" class="input-classic" placeholder="-1001234567890" required>
-                    <button type="submit" class="btn-classic" style="padding:4px 14px;font-weight:600;">💾 Save & Switch Channel</button>
+                    <button type="submit" class="btn-classic" style="padding:4px 14px;font-weight:600;display:inline-flex;align-items:center;gap:5px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Save & Switch Channel
+                    </button>
                 </form>
 
                 <div style="border-top:1px solid var(--border-hairline);margin-top:14px;padding-top:12px;font-size:12px;color:var(--text-muted);line-height:1.6;">
-                    <strong>💡 How to Connect Your Channel:</strong>
-                    <ol style="margin:6px 0 0 18px;padding:0;">
+                    <div style="display:flex;align-items:center;gap:5px;font-weight:700;margin-bottom:6px;color:var(--text-main);">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        How to Connect Your Channel:
+                    </div>
+                    <ol style="margin:4px 0 0 18px;padding:0;">
                         <li>Open or create your private channel in Telegram.</li>
                         <li>Add your bot as an <b>Administrator</b> with <i>"Post Messages"</i> permission.</li>
                         <li>Enter the Channel ID above, or forward any post from that channel to the bot in Telegram!</li>
@@ -1037,7 +1097,10 @@ async def channel_manager_web(
                 <form method="POST" action="/channel?token={req_token}" style="display:flex;gap:8px;align-items:center;">
                     <input type="hidden" name="action" value="add_admin">
                     <input type="text" name="new_admin_id" placeholder="Telegram User ID (e.g. 123456789)" class="input-classic" style="margin:0;max-width:300px;" required>
-                    <button type="submit" class="btn-classic" style="padding:6px 12px;font-weight:600;">➕ Add Admin</button>
+                    <button type="submit" class="btn-classic" style="padding:6px 12px;font-weight:600;display:inline-flex;align-items:center;gap:5px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                        Add Admin
+                    </button>
                 </form>
             </div>
         </div>
@@ -1048,8 +1111,14 @@ async def channel_manager_web(
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                     <div class="sec-head" style="margin:0;border:none;">RECENT SYSTEM LOGS</div>
                     <div>
-                        <a href="/logs" target="_blank" class="btn-classic">Full Logs Page ↗</a>
-                        <button class="btn-classic" onclick="location.reload()">Refresh</button>
+                        <a href="/logs" target="_blank" class="btn-classic" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            Full Logs Page
+                        </a>
+                        <button class="btn-classic" onclick="location.reload()" style="display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            Refresh
+                        </button>
                     </div>
                 </div>
                 <iframe src="/logs" style="width:100%;height:380px;border:1px solid var(--border-hairline);border-radius:2px;background:var(--code-bg);"></iframe>
@@ -1058,7 +1127,7 @@ async def channel_manager_web(
 
         <!-- Footer -->
         <div class="console-footer">
-            <div>Huawei AP6010SN-GN · Atheros AR9344 (MIPS 74Kc) · Telegram Ultra Mini v1.6.0</div>
+            <div>Huawei AP6010SN-GN · Atheros AR9344 (MIPS 74Kc) · Telegram Ultra Mini v1.6.2</div>
             <div><span class="signature">UI by pgwiz</span></div>
         </div>
     </div>
@@ -1081,20 +1150,20 @@ async def channel_manager_web(
         // Dark/Light mode theme toggle
         function toggleTheme() {{
             const html = document.documentElement;
-            const btn = document.getElementById('btn-theme');
+            const lbl = document.getElementById('theme-lbl') || document.getElementById('btn-theme');
             const current = html.getAttribute('data-theme') || 'light';
             const next = (current === 'light') ? 'dark' : 'light';
             html.setAttribute('data-theme', next);
             localStorage.setItem('console_theme', next);
-            if (btn) btn.innerText = (next === 'light') ? 'Dark' : 'Light';
+            if (lbl) lbl.innerText = (next === 'light') ? 'Dark' : 'Light';
         }}
 
         // Restore saved theme on load
         (function() {{
             const saved = localStorage.getItem('console_theme') || 'light';
             document.documentElement.setAttribute('data-theme', saved);
-            const btn = document.getElementById('btn-theme');
-            if (btn) btn.innerText = (saved === 'light') ? 'Dark' : 'Light';
+            const lbl = document.getElementById('theme-lbl') || document.getElementById('btn-theme');
+            if (lbl) lbl.innerText = (saved === 'light') ? 'Dark' : 'Light';
         }})();
 
         async function clearRam() {{

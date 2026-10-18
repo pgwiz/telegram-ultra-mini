@@ -5,6 +5,17 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-10-18
+
+### Changed
+- **Zero-Emoji Pure Vector Web Console:**
+  - Removed all casual emojis from the Huawei AP6010SN-GN Fat AP management console (`/channel` & `/channels`).
+  - Replaced all icons with authentic, crisp SVG vector icons across navigation tabs (Dashboard Overview, Storage Channel Broadcast, Admins Shield, Terminal Logs), header actions, network status LEDs, admin action buttons, forms, and system alert banners.
+  - Preserved theme toggle SVG icons and clean typography.
+- **Clean Emoji-Free Telegram Buttons:**
+  - Removed all emoji badges from playlist batch and error handling buttons (`Download All`, `Smart Mode`, `25 Tracks`, `50 Tracks`, `100 Tracks`, `All`, `Cancel`, `Retry Track`, `Skip Track`, `Stop Batch`).
+  - Retained native Bot API 9.4 semantic button color styles (`success`, `primary`, `danger`).
+
 ## [1.6.1] - 2026-10-18
 
 ### Added
