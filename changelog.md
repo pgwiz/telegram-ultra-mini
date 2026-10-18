@@ -5,6 +5,14 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-10-18
+
+### Fixed
+- **Timeout Guards & Graceful Deployment Shutdown Handling:**
+  - Added per-track download timeout guard (`120s`) in `run_playlist_download` ensuring stuck downloads or socket hangs never freeze batch execution.
+  - Added subprocess execution timeout guards in `Downloader` (`45s` for ffmpeg transcode and `90s` for yt-dlp fallback).
+  - Added active session notification in `bot/main.py` lifespan shutdown: when Render terminates a worker during a deployment or server restart, active in-flight playlist sessions immediately update their status message informing the user of the deployment and prompting them to resume seamlessly.
+
 ## [1.5.3] - 2026-10-17
 
 ### Added

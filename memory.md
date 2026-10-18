@@ -72,6 +72,7 @@
   - Spotify playlists support 100+ tracks via keyless embed parsing and on-the-fly stream resolution.
   - Rate limiting & FloodWait resilience: Consecutive audio uploads and status edits enforce 2.0s pacing and exponential backoff retry loops on `TelegramRetryAfter` exceptions to prevent Telegram flood-control stalls.
   - Pre-flight library analysis: Automatically scans tracks against database cache (`track_id` and case-insensitive `title`+`artist`). Pre-flight menu shows `Already in Library: X tracks`. During execution, existing tracks are delivered directly from Telegram channel storage first, and the bot downloads ONLY what is missing (`[idx/new_total]`).
+  - Timeout guards & Deployment Resilience: 120s per-track timeout guard prevents hanging, and FastAPI lifespan shutdown automatically updates in-flight playlist status messages if a server deployment or container restart occurs.
 - **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
 ## Repositories

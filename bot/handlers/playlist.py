@@ -357,6 +357,7 @@ async def handle_cancel_playlist(callback: CallbackQuery):
 async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: Message):
     """Execute batch download loop: deliver library tracks first, then download only missing songs."""
     total_tracks = len(session.tracks)
+    session.status_msg = status_msg
     stop_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
             text="Stop Batch",
@@ -542,7 +543,14 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
 
                 # Download & Cache to channel
                 target_ident = video_id or track.get("url") or f"{title} {artist}"
-                file_path, thumb_path, meta = await downloader.download_track(target_ident, quality="audio_high")
+                try:
+                    file_path, thumb_path, meta = await asyncio.wait_for(
+                        downloader.download_track(target_ident, quality="audio_high"),
+                        timeout=120.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"Track download timed out (120s) for {title} - {artist}")
+                    file_path, thumb_path, meta = None, None, {}
 
                 if file_path:
                     cached_id = video_id or target_ident

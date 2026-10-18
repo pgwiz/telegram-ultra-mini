@@ -90,6 +90,25 @@ async def lifespan(app: FastAPI):
 
     # 6. Graceful Shutdown
     logger.info("Shutting down background tasks and connection pools...")
+
+    # Notify any active in-flight playlist sessions before shutting down
+    try:
+        from bot.handlers.playlist import ACTIVE_SESSIONS
+        for s_id, session in list(ACTIVE_SESSIONS.items()):
+            if session.status in ("running", "paused") and hasattr(session, "status_msg") and session.status_msg:
+                try:
+                    await session.status_msg.edit_text(
+                        f"⚠️ <b>Playlist batch paused due to a server deployment.</b>\n\n"
+                        f"📋 <i>{session.title}</i>\n"
+                        f"Delivered: <b>{session.completed_count}/{session.total_available}</b> tracks.\n\n"
+                        f"🔄 <i>Send the playlist link again to resume right where you left off! (Already delivered tracks will be restored instantly from library with 0 downloads).</i>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.debug(f"Graceful session notification skipped: {e}")
+
     if polling_task:
         polling_task.cancel()
         try:

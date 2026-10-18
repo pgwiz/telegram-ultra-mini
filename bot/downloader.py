@@ -216,7 +216,14 @@ class Downloader:
                                     stdout=asyncio.subprocess.DEVNULL,
                                     stderr=asyncio.subprocess.DEVNULL
                                 )
-                                await proc.wait()
+                                try:
+                                    await asyncio.wait_for(proc.wait(), timeout=45.0)
+                                except asyncio.TimeoutError:
+                                    logger.warning("ffmpeg transcode timed out (45s). Terminating process...")
+                                    try:
+                                        proc.kill()
+                                    except Exception:
+                                        pass
                                 if os.path.exists(temp_raw_path):
                                     try:
                                         os.remove(temp_raw_path)
@@ -304,7 +311,18 @@ class Downloader:
                 info = ydl.extract_info(target, download=True)
                 return info
 
-        info = await asyncio.to_thread(run_ytdlp)
+        try:
+            info = await asyncio.wait_for(asyncio.to_thread(run_ytdlp), timeout=90.0)
+        except asyncio.TimeoutError:
+            logger.error(f"Fallback yt-dlp execution timed out (90s) for {identifier}")
+            return None, None, {}
+        except Exception as e:
+            logger.error(f"Fallback yt-dlp failed for {identifier}: {e}")
+            return None, None, {}
+
+        if not info:
+            return None, None, {}
+
         file_path = str(self.download_dir / f"{task_id}.{ext}")
         thumb_path = None
 
