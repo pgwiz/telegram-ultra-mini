@@ -1213,6 +1213,79 @@ class Database:
             logger.warning(f"Error checking admin status for {user_id}: {e}")
             return False
 
+    async def set_user_admin(self, user_id: int, is_admin: bool = True) -> bool:
+        """Add or revoke admin privileges for a user."""
+        if not self.is_connected:
+            return False
+        try:
+            val_bool = bool(is_admin)
+            if self.is_mongo and self.mongo_db is not None:
+                await self.mongo_db.users.update_one(
+                    {"chat_id": user_id},
+                    {"$set": {"is_admin": val_bool, "updated_at": datetime.utcnow()}},
+                    upsert=True
+                )
+                return True
+            elif self.is_postgres:
+                async def _run(conn):
+                    await conn.execute("""
+                        INSERT INTO users (chat_id, is_admin, updated_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (chat_id) DO UPDATE SET is_admin = EXCLUDED.is_admin, updated_at = NOW();
+                    """, user_id, val_bool)
+                await self._execute_pg_with_retry(_run)
+                return True
+            elif self.sqlite_conn:
+                await self.sqlite_conn.execute("""
+                    INSERT INTO users (chat_id, is_admin, last_active)
+                    VALUES (?, ?, datetime('now'))
+                    ON CONFLICT(chat_id) DO UPDATE SET is_admin = excluded.is_admin, last_active = datetime('now');
+                """, (user_id, 1 if val_bool else 0))
+                await self.sqlite_conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error updating admin status for {user_id}: {e}")
+            return False
+        return False
+
+    async def get_admins(self) -> List[int]:
+        """Return list of all configured admin user IDs."""
+        admin_ids = set()
+        if settings.ADMIN_CHAT_ID:
+            try:
+                admin_ids.add(int(settings.ADMIN_CHAT_ID))
+            except (ValueError, TypeError):
+                pass
+
+        if not self.is_connected:
+            return list(admin_ids)
+
+        try:
+            if self.is_mongo and self.mongo_db is not None:
+                cursor = self.mongo_db.users.find({"is_admin": True}, {"chat_id": 1})
+                async for doc in cursor:
+                    if doc.get("chat_id"):
+                        try:
+                            admin_ids.add(int(doc["chat_id"]))
+                        except (ValueError, TypeError):
+                            pass
+            elif self.is_postgres:
+                async def _run(conn):
+                    rows = await conn.fetch("SELECT chat_id FROM users WHERE is_admin = TRUE;")
+                    return [r["chat_id"] for r in rows if r.get("chat_id")]
+                pg_admins = await self._execute_pg_with_retry(_run)
+                if pg_admins:
+                    admin_ids.update(int(x) for x in pg_admins)
+            elif self.sqlite_conn:
+                async with self.sqlite_conn.execute("SELECT chat_id FROM users WHERE is_admin = 1;") as cursor:
+                    rows = await cursor.fetchall()
+                    for r in rows:
+                        admin_ids.add(int(r[0]))
+        except Exception as e:
+            logger.warning(f"Error fetching admins list: {e}")
+
+        return list(admin_ids)
+
     async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """Retrieve a bot setting value by key."""
         try:

@@ -234,8 +234,60 @@ class TestPlaylistBatch(unittest.IsolatedAsyncioTestCase):
         mock_msg.from_user.id = 999999999  # Normal user, definitely not admin
 
         await handle_channels_command(mock_msg, mock_bot)
-        # Verify message.answer was NEVER called (silent / no response)
         mock_msg.answer.assert_not_called()
+
+    async def test_admin_selector_keyboard(self):
+        """Verify native Telegram selector keyboard configuration."""
+        from bot.handlers.admin import make_selector_keyboard
+
+        kb = make_selector_keyboard()
+        self.assertIsNotNone(kb)
+        self.assertTrue(kb.resize_keyboard)
+
+        all_buttons = [btn for row in kb.keyboard for btn in row]
+        # Check channel picker button
+        ch_btn = next((b for b in all_buttons if "Choose Storage Channel" in b.text), None)
+        self.assertIsNotNone(ch_btn)
+        self.assertIsNotNone(ch_btn.request_chat)
+        self.assertTrue(ch_btn.request_chat.chat_is_channel)
+
+        # Check admin user picker button
+        adm_btn = next((b for b in all_buttons if "Choose Bot Admin" in b.text), None)
+        self.assertIsNotNone(adm_btn)
+        self.assertTrue(adm_btn.request_users is not None or adm_btn.request_user is not None)
+
+    async def test_admin_management_db(self):
+        """Verify dynamic admin persistence across set_user_admin and get_admins."""
+        from bot.database import Database
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        test_db = Database(db_url=f"sqlite:///{temp_db}")
+        await test_db.connect()
+
+        try:
+            # Initially not admin
+            self.assertFalse(await test_db.is_admin(987654321))
+
+            # Grant admin
+            ok = await test_db.set_user_admin(987654321, is_admin=True)
+            self.assertTrue(ok)
+            self.assertTrue(await test_db.is_admin(987654321))
+
+            # Verify in get_admins
+            admins = await test_db.get_admins()
+            self.assertIn(987654321, admins)
+
+            # Revoke admin
+            ok2 = await test_db.set_user_admin(987654321, is_admin=False)
+            self.assertTrue(ok2)
+            self.assertFalse(await test_db.is_admin(987654321))
+        finally:
+            await test_db.disconnect()
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
 
 
 if __name__ == "__main__":

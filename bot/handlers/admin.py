@@ -6,7 +6,11 @@ import logging
 from pathlib import Path
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonRequestChat,
+    KeyboardButtonRequestUsers, KeyboardButtonRequestUser, ReplyKeyboardRemove
+)
 from bot.config import settings
 from bot.database import db
 from bot.cache import cache
@@ -24,6 +28,10 @@ def make_admin_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📢 Channel Manager", callback_data="adm:channels")
         ],
         [
+            InlineKeyboardButton(text="👥 Manage Admins", callback_data="adm:admins"),
+            InlineKeyboardButton(text="📱 Selector Buttons", callback_data="adm:selectors")
+        ],
+        [
             InlineKeyboardButton(text="📜 View Logs", callback_data="adm:logs"),
             InlineKeyboardButton(text="🧹 Run Cleanup", callback_data="adm:cleanup")
         ],
@@ -31,6 +39,43 @@ def make_admin_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚡ Clear RAM Cache", callback_data="adm:cache_clear")
         ]
     ])
+
+
+def make_selector_keyboard() -> ReplyKeyboardMarkup:
+    """Build native Telegram interactive selector keyboard for Channel and Admin selection."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(
+                    text="📢 Choose Storage Channel",
+                    request_chat=KeyboardButtonRequestChat(
+                        request_id=101,
+                        chat_is_channel=True,
+                        bot_is_member=None,
+                        request_title=True,
+                        request_username=True
+                    )
+                ),
+                KeyboardButton(
+                    text="👤 Choose Bot Admin",
+                    request_user=KeyboardButtonRequestUser(request_id=102, user_is_bot=False),
+                    request_users=KeyboardButtonRequestUsers(
+                        request_id=102,
+                        user_is_bot=False,
+                        max_quantity=1,
+                        request_name=True,
+                        request_username=True
+                    )
+                )
+            ],
+            [
+                KeyboardButton(text="❌ Close Selector Keyboard")
+            ]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Tap a selector button above..."
+    )
 
 
 @router.message(Command("admin"))
@@ -43,8 +88,12 @@ async def handle_admin_panel(message: Message):
 
     text = (
         "👑 <b>Admin Control Panel</b>\n\n"
-        "Manage cloud storage, maintain caches, and monitor performance.\n\n"
+        "Manage cloud storage, maintain caches, and configure bot settings.\n\n"
         "<b>Available Admin Commands:</b>\n"
+        "• <code>/channel</code> - Inspect & switch active storage channel\n"
+        "• <code>/admins</code> - View & manage bot administrators\n"
+        "• <code>/addadmin &lt;id&gt;</code> - Grant admin rights to a user\n"
+        "• <code>/deladmin &lt;id&gt;</code> - Revoke admin rights\n"
         "• <code>/delete &lt;#track_id&gt;</code> - Purge track from DB & storage channel\n"
         "• <code>/cleanup</code> - Purge local temp files & expired DB cache\n"
         "• <code>/stats</code> - Real-time system & database statistics\n"
@@ -257,13 +306,42 @@ async def handle_admin_callback(callback: CallbackQuery):
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
         await callback.answer("Channel status refreshed")
 
+    elif action == "admins":
+        text, kb = await get_admins_overview(callback.bot)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await callback.answer("Admins list refreshed")
+
+    elif action.startswith("deladmin:"):
+        target_uid = int(action.split(":")[1])
+        if target_uid == settings.ADMIN_CHAT_ID:
+            await callback.answer("Cannot remove Primary Owner", show_alert=True)
+            return
+        await db.set_user_admin(target_uid, is_admin=False)
+        text, kb = await get_admins_overview(callback.bot)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await callback.answer(f"Removed admin {target_uid}")
+
+    elif action == "selectors":
+        await callback.message.answer(
+            "📱 <b>Native Telegram Selectors Active!</b>\n\n"
+            "Tap a button below:\n"
+            "• 📢 <b>Choose Storage Channel:</b> Opens your channel selector modal\n"
+            "• 👤 <b>Choose Bot Admin:</b> Opens your user selector modal\n\n"
+            "<i>Tap '❌ Close Selector Keyboard' when finished.</i>",
+            reply_markup=make_selector_keyboard(),
+            parse_mode="HTML"
+        )
+        await callback.answer("Selectors attached")
+
     elif action == "panel":
         text = (
             "👑 <b>Admin Control Panel</b>\n\n"
-            "Manage cloud storage, maintain caches, and monitor performance.\n\n"
+            "Manage cloud storage, maintain caches, and configure bot settings.\n\n"
             "<b>Available Admin Commands:</b>\n"
-            "• <code>/channel</code> - Inspect & manage storage channel\n"
-            "• <code>/setchannel &lt;id&gt;</code> - Set active storage channel\n"
+            "• <code>/channel</code> - Inspect & switch active storage channel\n"
+            "• <code>/admins</code> - View & manage bot administrators\n"
+            "• <code>/addadmin &lt;id&gt;</code> - Grant admin rights to a user\n"
+            "• <code>/deladmin &lt;id&gt;</code> - Revoke admin rights\n"
             "• <code>/delete &lt;#track_id&gt;</code> - Purge track from DB & storage channel\n"
             "• <code>/cleanup</code> - Purge local temp files & expired DB cache\n"
             "• <code>/stats</code> - Real-time system & database statistics\n"
@@ -325,6 +403,10 @@ async def get_channel_diagnostics(bot: Bot):
         if open_link:
             buttons.append([InlineKeyboardButton(text="📢 Open Storage Channel ↗️", url=open_link)])
         buttons.append([
+            InlineKeyboardButton(text="📱 Channel Selector Keyboard", callback_data="adm:selectors"),
+            InlineKeyboardButton(text="👥 Manage Admins", callback_data="adm:admins")
+        ])
+        buttons.append([
             InlineKeyboardButton(text="🌐 Web Channel Manager ↗️", url=web_url),
             InlineKeyboardButton(text="🔄 Refresh", callback_data="adm:channel_refresh")
         ])
@@ -340,18 +422,68 @@ async def get_channel_diagnostics(bot: Bot):
             f"🆔 <b>Configured ID:</b> <code>{cid}</code>",
             f"❌ <b>Error:</b> <i>{error_str}</i>\n",
             f"💡 <b>How to Connect Your Channel:</b>",
-            f"1. Open or create your private channel in Telegram.",
+            f"1. Tap <b>'📱 Channel Selector Keyboard'</b> below to choose your channel natively.",
             f"2. Add <b>@{bot_me.username}</b> as an <b>Administrator</b> with <i>'Post Messages'</i> permission.",
-            f"3. <b>Forward any post from that channel to me right here</b>, or run:",
+            f"3. Or <b>forward any post from that channel to me right here</b>, or run:",
             f"   <code>/setchannel &lt;channel_id&gt;</code>\n",
             f"🌐 <i>Or configure it using the Web Channel Manager below:</i>"
         ]
         buttons = [
-            [InlineKeyboardButton(text="🌐 Web Channel Manager ↗️", url=web_url)],
-            [InlineKeyboardButton(text="🔄 Re-test Connection", callback_data="adm:channel_refresh")],
+            [
+                InlineKeyboardButton(text="📱 Channel Selector Keyboard", callback_data="adm:selectors"),
+                InlineKeyboardButton(text="👥 Manage Admins", callback_data="adm:admins")
+            ],
+            [
+                InlineKeyboardButton(text="🌐 Web Channel Manager ↗️", url=web_url),
+                InlineKeyboardButton(text="🔄 Re-test Connection", callback_data="adm:channel_refresh")
+            ],
             [InlineKeyboardButton(text="🔙 Back to Admin", callback_data="adm:panel")]
         ]
         return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def get_admins_overview(bot: Bot):
+    """Build list of current admins and management controls."""
+    admins = await db.get_admins()
+    owner_id = int(settings.ADMIN_CHAT_ID) if settings.ADMIN_CHAT_ID else None
+
+    lines = [
+        "👥 <b>Bot Administrators</b>\n",
+        f"Total Configured Admins: <b>{len(admins)}</b>\n"
+    ]
+
+    buttons = []
+    for uid in admins:
+        is_owner = (owner_id is not None and uid == owner_id)
+        role_label = "👑 Owner" if is_owner else "⚙️ Admin"
+
+        name_str = f"User <code>{uid}</code>"
+        try:
+            u_chat = await bot.get_chat(uid)
+            u_title = u_chat.full_name or (f"@{u_chat.username}" if u_chat.username else str(uid))
+            name_str = f"<b>{u_title}</b> (<code>{uid}</code>)"
+        except Exception:
+            pass
+
+        lines.append(f"• {role_label}: {name_str}")
+
+        if not is_owner:
+            buttons.append([
+                InlineKeyboardButton(text=f"❌ Revoke Admin ({uid})", callback_data=f"adm:deladmin:{uid}")
+            ])
+
+    lines.append("\n💡 <i>To add a new admin, tap 'Choose Bot Admin' on your selector keyboard, or run:</i>")
+    lines.append("<code>/addadmin &lt;user_id&gt;</code>")
+
+    buttons.append([
+        InlineKeyboardButton(text="📱 Open Selector Keyboard", callback_data="adm:selectors"),
+        InlineKeyboardButton(text="🔄 Refresh", callback_data="adm:admins")
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Back to Admin", callback_data="adm:panel")
+    ])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message(Command("channel", "channels"))
@@ -364,6 +496,156 @@ async def handle_channels_command(message: Message, bot: Bot):
 
     text, keyboard = await get_channel_diagnostics(bot)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(
+        "📱 <i>Quick Selector: Tap 'Choose Storage Channel' below to open the native channel selector.</i>",
+        reply_markup=make_selector_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("admins"))
+async def handle_admins_command(message: Message, bot: Bot):
+    """Handle /admins command to view and manage bot administrators."""
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+
+    text, kb = await get_admins_overview(bot)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await message.answer(
+        "📱 <i>Quick Selector: Tap 'Choose Bot Admin' below to open the native user contact picker.</i>",
+        reply_markup=make_selector_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("addadmin"))
+async def handle_addadmin_command(message: Message, bot: Bot):
+    """Handle /addadmin <user_id> command."""
+    actor_id = message.from_user.id if message.from_user else 0
+    if actor_id != settings.ADMIN_CHAT_ID and not await db.is_admin(actor_id):
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer(
+            "Usage: <code>/addadmin &lt;user_id&gt;</code>\n"
+            "Example: <code>/addadmin 123456789</code>\n\n"
+            "<i>Tip: You can also tap 'Choose Bot Admin' on your selector keyboard!</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    raw_id = args[1].strip()
+    try:
+        target_id = int(raw_id)
+    except ValueError:
+        await message.answer("❌ Invalid User ID. Must be a numeric Telegram ID.", parse_mode="HTML")
+        return
+
+    await db.set_user_admin(target_id, is_admin=True)
+    text, kb = await get_admins_overview(bot)
+    await message.answer(
+        f"✅ <b>Granted Admin access to User ID <code>{target_id}</code>!</b>\n\n{text}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("deladmin", "removeadmin"))
+async def handle_deladmin_command(message: Message, bot: Bot):
+    """Handle /deladmin <user_id> command."""
+    actor_id = message.from_user.id if message.from_user else 0
+    if actor_id != settings.ADMIN_CHAT_ID and not await db.is_admin(actor_id):
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer(
+            "Usage: <code>/deladmin &lt;user_id&gt;</code>\n"
+            "Example: <code>/deladmin 123456789</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    raw_id = args[1].strip()
+    try:
+        target_id = int(raw_id)
+    except ValueError:
+        await message.answer("❌ Invalid User ID.", parse_mode="HTML")
+        return
+
+    if target_id == settings.ADMIN_CHAT_ID:
+        await message.answer("⚠️ Cannot remove the Primary Bot Owner.", parse_mode="HTML")
+        return
+
+    await db.set_user_admin(target_id, is_admin=False)
+    text, kb = await get_admins_overview(bot)
+    await message.answer(
+        f"🗑 <b>Revoked Admin access for User ID <code>{target_id}</code>!</b>\n\n{text}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.chat_shared)
+async def handle_channel_shared(message: Message, bot: Bot):
+    """Auto-bind storage channel when admin selects it via the native Telegram channel picker."""
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+
+    chat_shared = message.chat_shared
+    cid = chat_shared.chat_id
+    raw_title = getattr(chat_shared, "title", None) or "Selected Channel"
+
+    await storage_manager.set_channel_id(cid)
+    text, keyboard = await get_channel_diagnostics(bot)
+    await message.answer(
+        f"🎯 <b>Channel Selected via Telegram Picker!</b>\n"
+        f"📦 <b>{raw_title}</b> (<code>{cid}</code>)\n\n{text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.users_shared)
+@router.message(F.user_shared)
+async def handle_admin_user_shared(message: Message, bot: Bot):
+    """Grant admin privileges when admin selects a user via native Telegram user picker."""
+    actor_id = message.from_user.id if message.from_user else 0
+    if actor_id != settings.ADMIN_CHAT_ID and not await db.is_admin(actor_id):
+        return
+
+    target_ids = []
+    if message.users_shared:
+        target_ids = message.users_shared.user_ids or [u.user_id for u in (message.users_shared.users or [])]
+    elif message.user_shared:
+        target_ids = [message.user_shared.user_id]
+
+    if not target_ids:
+        await message.answer("⚠️ No user selected.")
+        return
+
+    for target_id in target_ids:
+        await db.set_user_admin(target_id, is_admin=True)
+
+    text, kb = await get_admins_overview(bot)
+    await message.answer(
+        f"🎉 <b>Admin Added Successfully!</b>\n"
+        f"User ID <code>{target_ids[0]}</code> has been granted full admin privileges.\n\n{text}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.text.in_({"❌ Close Selectors", "❌ Close Selector Keyboard"}))
+async def handle_close_selectors(message: Message):
+    """Dismiss native selector keyboard cleanly."""
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+    await message.answer("✅ Selector keyboard closed.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command("setchannel"))

@@ -5,6 +5,20 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-18
+
+### Added
+- **Native Telegram Channel & User Selectors:**
+  - Added interactive selector reply keyboard (`make_selector_keyboard`) using Telegram Bot API's native `KeyboardButtonRequestChat` and `KeyboardButtonRequestUsers` / `KeyboardButtonRequestUser`.
+  - Added `📢 Choose Storage Channel` button: Opens Telegram's native channel picker modal. When selected, the bot receives `F.chat_shared`, automatically binds the new storage channel, validates bot posting permissions, and displays live channel diagnostics.
+  - Added `👤 Choose Bot Admin` button: Opens Telegram's native user contact picker modal. When selected, the bot receives `F.users_shared` or `F.user_shared`, grants admin access, and saves the privileges.
+  - Added `❌ Close Selector Keyboard` button: Cleanly dismisses the reply keyboard via `ReplyKeyboardRemove`.
+- **Bot Administrator Management:**
+  - Added `/admins` command: Displays active administrators (with badges `👑 Owner` and `⚙️ Admin`) and interactive inline `[ ❌ Revoke ]` buttons.
+  - Added `/addadmin <user_id>` and `/deladmin <user_id>` commands for direct admin management.
+  - Added `set_user_admin` and `get_admins` methods to `Database` across MongoDB Atlas, Neon PostgreSQL, and SQLite.
+  - Added `👥 Bot Administrators` card to the Web Channel Manager dashboard with real-time list of admins, one-click revocation, and an add-admin form.
+
 ## [1.5.9] - 2026-10-18
 
 ### Fixed

@@ -427,15 +427,39 @@ async def channel_manager_web(
         body_bytes = await request.body()
         body_str = body_bytes.decode("utf-8", errors="ignore")
         parsed = urllib.parse.parse_qs(body_str)
-        channel_id = parsed.get("channel_id", [None])[0] or request.query_params.get("channel_id")
-        if channel_id:
-            clean_cid = channel_id.strip()
-            try:
-                new_cid = int(clean_cid)
-                await storage_manager.set_channel_id(new_cid)
-                feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Storage Channel ID updated to <b>{new_cid}</b>!</div>'
-            except ValueError:
-                feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
+
+        action = parsed.get("action", [None])[0] or request.query_params.get("action")
+        if action == "add_admin":
+            admin_id_val = parsed.get("new_admin_id", [None])[0] or request.query_params.get("new_admin_id")
+            if admin_id_val:
+                try:
+                    target_aid = int(admin_id_val.strip())
+                    await db.set_user_admin(target_aid, is_admin=True)
+                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Added Admin User ID <b>{target_aid}</b>!</div>'
+                except ValueError:
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Admin User ID. Must be a numeric Telegram ID.</div>'
+        elif action == "del_admin":
+            admin_id_val = parsed.get("del_admin_id", [None])[0] or request.query_params.get("del_admin_id")
+            if admin_id_val:
+                try:
+                    target_aid = int(admin_id_val.strip())
+                    if target_aid == settings.ADMIN_CHAT_ID:
+                        feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">⚠️ Cannot remove the Primary Bot Owner.</div>'
+                    else:
+                        await db.set_user_admin(target_aid, is_admin=False)
+                        feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">🗑 Revoked Admin rights for User ID <b>{target_aid}</b>.</div>'
+                except ValueError:
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Admin User ID.</div>'
+        else:
+            channel_id = parsed.get("channel_id", [None])[0] or request.query_params.get("channel_id")
+            if channel_id:
+                clean_cid = channel_id.strip()
+                try:
+                    new_cid = int(clean_cid)
+                    await storage_manager.set_channel_id(new_cid)
+                    feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Storage Channel ID updated to <b>{new_cid}</b>!</div>'
+                except ValueError:
+                    feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
 
     cid = await storage_manager.sync_channel_id()
     bot = ACTIVE_BOT or Bot(token=settings.TELEGRAM_BOT_TOKEN)
@@ -494,6 +518,34 @@ async def channel_manager_web(
             <div style="color:#e5e7eb;font-family:monospace;font-size:13px;">{error_msg}</div>
         </div>
         """
+
+    admins = await db.get_admins()
+    owner_id = int(settings.ADMIN_CHAT_ID) if settings.ADMIN_CHAT_ID else None
+    admin_rows = []
+    for aid in admins:
+        is_owner = (owner_id is not None and aid == owner_id)
+        role_badge = '<span style="background:#854d0e;color:#fef08a;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">👑 Primary Owner</span>' if is_owner else '<span style="background:#1e3a5f;color:#93c5fd;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">⚙️ Admin</span>'
+
+        del_btn = ""
+        if not is_owner:
+            del_btn = f'''
+            <form method="POST" action="/channel?token={req_token}" style="display:inline;margin:0;">
+                <input type="hidden" name="action" value="del_admin">
+                <input type="hidden" name="del_admin_id" value="{aid}">
+                <button type="submit" style="background:#7f1d1d;color:#fca5a5;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;">❌ Remove</button>
+            </form>
+            '''
+
+        admin_rows.append(f'''
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #1f2937;">
+            <div>
+                <span style="font-family:monospace;color:#f3f4f6;font-size:13px;">User ID: <b>{aid}</b></span>
+                <span style="margin-left:8px;">{role_badge}</span>
+            </div>
+            <div>{del_btn}</div>
+        </div>
+        ''')
+    admins_list_html = "".join(admin_rows) if admin_rows else '<div style="color:#9ca3af;font-size:13px;">No administrators configured.</div>'
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -649,6 +701,19 @@ async def channel_manager_web(
                     <li>Enter the Channel ID above, or in Telegram simply <b>forward any post from that channel to the bot</b>!</li>
                 </ol>
             </div>
+        <div class="card">
+            <h3 style="margin:0 0 12px 0;color:#f3f4f6;">👥 Bot Administrators</h3>
+            <div style="margin-bottom:16px;">
+                {admins_list_html}
+            </div>
+
+            <h4 style="margin:16px 0 8px 0;color:#9ca3af;font-size:13px;font-weight:600;">➕ Add New Admin</h4>
+            <form method="POST" action="/channel?token={req_token}">
+                <input type="hidden" name="action" value="add_admin">
+                <label class="label">Telegram User ID:</label>
+                <input type="text" name="new_admin_id" placeholder="e.g. 123456789" required>
+                <button type="submit" class="btn-save">➕ Add Administrator</button>
+            </form>
         </div>
     </div>
 </body>
