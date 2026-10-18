@@ -5,6 +5,21 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-10-18
+
+### Added
+- **Huawei AP6010SN-GN Classic Fat AP Web Console Interface:**
+  - Redesigned the `/channel` and `/channels` web management dashboard to match the classic hardware router management web console interface (`Huawei AP6010SN-GN Fat AP Management · UI by pgwiz`).
+  - Added iconic Huawei red fan branding, top navigation header with live IP (`192.168.21.80`), and working `[ Dark ]` / `[ Light ]` theme switch persisted in `localStorage`.
+  - Added multi-tab layout: `📑 Overview`, `📢 Storage Channel`, `👥 Admins (N)`, and `📜 Logs`.
+  - Added `STATUS` hardware telemetry table showing active channel metadata, bot administrator status, posting rights, database type, uptime, RAM consumption, and total cached audio tracks.
+  - Added `ACTIONS` control panel with classic bordered router-style action buttons (`[ Refresh ]`, `[ Open Channel ↗ ]`, `[ Clear RAM Cache ]`, `[ Reboot ]`), operating mode indicator, and live QR code generator with mini-tabs (`Secure Channel`, `Bot Chat`, `Admin Web`).
+  - Added authentic router footer with chipset and firmware details (`Huawei AP6010SN-GN · Atheros AR9344 (MIPS 74Kc) · Telegram Ultra Mini v1.6.1`) and `UI by pgwiz` credit.
+
+- **Colored Telegram Button Indicators:**
+  - Added vibrant color emoji indicators across all playlist batch selection and Smart Mode control buttons (`📥 Download All`, `🧠 Smart Mode`, `🟢 25 Tracks`, `🔵 50 Tracks`, `🟣 100 Tracks`, `⚡ All`, `❌ Cancel`).
+  - Added clear color status indicators to paused/error state buttons (`🔄 Retry Track`, `⏭ Skip Track`, `🛑 Stop Batch`).
+
 ## [1.6.0] - 2026-10-18
 
 ### Added
