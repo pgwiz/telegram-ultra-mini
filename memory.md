@@ -65,15 +65,29 @@
   - Role-based `/help`: Appends administrative commands only for users matching `ADMIN_CHAT_ID` or flagged as admin in `users` table.
 - **Interactive Playlist Batch Sizing & Smart Mode:**
   - When a playlist link is received (`/playlist <url>`, `/da <url>`, or direct link), the bot inspects the metadata and presents a batch sizing menu:
-    - $\le 25$ tracks: `Download All`, `Smart Mode`, `Cancel`.
-    - $> 25$ tracks: `25`, `50`, `100`, `All (100+)`, `Smart Mode`, and `Cancel`.
-  - In Smart Mode, any track failure pauses the batch and prompts user: `[ Retry Track ]`, `[ Skip Track ]`, `[ Stop Batch ]`.
-  - Styled with clean, native Bot API 9.4 semantic button styles (`success`, `primary`, `danger`) without colored circle or stop emojis.
+    - $\le 25$ tracks: `📥 Download All`, `🧠 Smart Mode (Pause on Error)`, `❌ Cancel`.
+    - $> 25$ tracks: `🟢 25 Tracks`, `🔵 50 Tracks`, `🟣 100 Tracks`, `⚡ All ({total})`, `🧠 Smart Mode (Pause on Error)`, and `❌ Cancel`.
+  - In Smart Mode, any track failure pauses the batch and prompts user: `[ 🔄 Retry Track ]`, `[ ⏭ Skip Track ]`, `[ 🛑 Stop Batch ]`.
+  - Styled with vibrant colored emojis alongside Bot API 9.4 semantic button styles (`success`, `primary`, `danger`).
   - Spotify playlists support 100+ tracks via keyless embed parsing and on-the-fly stream resolution.
   - Rate limiting & FloodWait resilience: Consecutive audio uploads and status edits enforce 2.0s pacing and exponential backoff retry loops on `TelegramRetryAfter` exceptions to prevent Telegram flood-control stalls.
   - Pre-flight library analysis: Automatically scans tracks against database cache (`track_id` and case-insensitive `title`+`artist`). Pre-flight menu shows `Already in Library: X tracks`. During execution, existing tracks are delivered directly from Telegram channel storage first, and the bot downloads ONLY what is missing (`[idx/new_total]`).
   - Timeout guards & Deployment Resilience: 120s per-track timeout guard prevents hanging, and FastAPI lifespan shutdown automatically updates in-flight playlist status messages if a server deployment or container restart occurs.
-- **Emergency Fallback:** If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
+- **Classic Huawei Fat AP Web Management Console (`/channel` & `/channels`):**
+  - Secured web console route accessible with secret admin token (`/channel?token=...`).
+  - Authentic hardware router theme modeled after the Huawei AP6010SN-GN Fat AP management console (`UI by pgwiz`).
+  - Features red Huawei fan branding, active IP indicator (`192.168.21.80 Net: Online`), working `[ Dark ]` / `[ Light ]` theme toggle with `localStorage` persistence, and shortcut to Telegram.
+  - Tabbed interface (`Overview`, `Storage Channel`, `Admins`, `Logs`).
+  - Displays hardware telemetry (Uptime, RAM, DB engine, Channel status, Posting rights, Bot membership, Total cached audio count).
+  - ACTIONS control panel with router-style buttons (`Refresh`, `Open Channel ↗`, `Clear RAM Cache`, `Reboot`), Pure Access Point / Media Gateway operating mode indicator, and interactive multi-tab QR code generator (`Secure Channel`, `Bot Chat`, `Admin Web`).
+- **Native Channel & User Telegram Selectors:**
+  - Added reply keyboard with `KeyboardButtonRequestChat` and `KeyboardButtonRequestUsers`/`KeyboardButtonRequestUser`.
+  - `📢 Choose Storage Channel`: Opens native picker modal; on selection (`F.chat_shared`), binds storage channel and runs permissions diagnostics.
+  - `👤 Choose Bot Admin`: Opens native user picker modal; on selection (`F.users_shared`/`F.user_shared`), promotes user to administrator.
+  - Admins management via `/admins`, `/addadmin`, `/deladmin`, and web console admin card.
+- **Emergency Fallback & Channel Inaccessibility Guard:**
+  - If `STORAGE_CHANNEL_ID` is inaccessible (`TelegramBadRequest: chat not found`), uploads fall back seamlessly to direct user delivery without breaking batch pipelines.
+  - If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
 ## Repositories
 - Public: `https://github.com/pgwiz/telegram-ultra-mini.git`
