@@ -5,6 +5,15 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2026-10-18
+
+### Fixed
+- **Database Test Isolation & Multi-Backend URL Overrides:**
+  - Added instance-level `db_url` and `_effective_db_url` property support in `Database` class (`bot/database.py`).
+  - Guaranteed `Database(db_url=...)` instances (such as unit test SQLite databases) never leak writes or reads to production MongoDB Atlas clusters or remote PostgreSQL instances.
+  - Added `delete_setting` helper for MongoDB Atlas, Neon PostgreSQL, and SQLite backends.
+  - Cleaned up dummy test setting (`-1009988776655`) from production MongoDB Atlas `bot_settings`, restoring default configured storage channel ID.
+
 ## [1.5.8] - 2026-10-18
 
 ### Added

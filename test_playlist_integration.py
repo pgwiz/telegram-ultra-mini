@@ -179,19 +179,25 @@ class TestPlaylistBatch(unittest.IsolatedAsyncioTestCase):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
             temp_db = tf.name
 
-        test_db = Database()
-        test_db.db_url = f"sqlite:///{temp_db}"
+        test_db = Database(db_url=f"sqlite:///{temp_db}")
+        self.assertTrue(test_db.is_sqlite)
+        self.assertFalse(test_db.is_mongo)
         await test_db.connect()
 
         try:
             # 1. Test set and get
-            await test_db.set_setting("storage_channel_id", "-1009988776655")
-            val = await test_db.get_setting("storage_channel_id")
-            self.assertEqual(val, "-1009988776655")
+            await test_db.set_setting("test_storage_channel_id", "-1001122334455")
+            val = await test_db.get_setting("test_storage_channel_id")
+            self.assertEqual(val, "-1001122334455")
 
             # 2. Test fallback default
             missing = await test_db.get_setting("non_existent_key", default="default_val")
             self.assertEqual(missing, "default_val")
+
+            # 3. Test delete_setting
+            deleted = await test_db.delete_setting("test_storage_channel_id")
+            self.assertTrue(deleted)
+            self.assertIsNone(await test_db.get_setting("test_storage_channel_id"))
         finally:
             await test_db.disconnect()
             if os.path.exists(temp_db):

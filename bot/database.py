@@ -57,7 +57,8 @@ NEON_TRANSIENT_ERRORS = (
 
 
 class Database:
-    def __init__(self):
+    def __init__(self, db_url: Optional[str] = None):
+        self.db_url: Optional[str] = db_url
         self.mongo_client: Optional[Any] = None
         self.mongo_db: Optional[Any] = None
         self._active_db_name: Optional[str] = None
@@ -67,15 +68,22 @@ class Database:
         self._lock = asyncio.Lock()
 
     @property
+    def _effective_db_url(self) -> str:
+        """Return the effective database URL (instance override or global settings)."""
+        if getattr(self, "db_url", None):
+            return self.db_url
+        return settings.DATABASE_URL or getattr(settings, "MONGO_URL", "") or ""
+
+    @property
     def is_mongo(self) -> bool:
-        """Return True if DATABASE_URL or MONGO_URL specifies MongoDB."""
-        db_url = settings.DATABASE_URL or getattr(settings, "MONGO_URL", "") or ""
+        """Return True if effective database URL specifies MongoDB."""
+        db_url = self._effective_db_url
         return db_url.startswith("mongodb://") or db_url.startswith("mongodb+srv://")
 
     @property
     def is_postgres(self) -> bool:
-        """Return True if DATABASE_URL specifies PostgreSQL / Neon."""
-        db_url = settings.DATABASE_URL or ""
+        """Return True if effective database URL specifies PostgreSQL / Neon."""
+        db_url = self._effective_db_url
         return db_url.startswith("postgresql://") or db_url.startswith("postgres://")
 
     @property
@@ -139,7 +147,7 @@ class Database:
             if self.is_connected:
                 return
 
-            db_url = settings.DATABASE_URL or getattr(settings, "MONGO_URL", "") or ""
+            db_url = self._effective_db_url
 
             # ── 1. Connect to MongoDB ──
             if self.is_mongo:
@@ -1253,6 +1261,26 @@ class Database:
                 return True
         except Exception as e:
             logger.error(f"Error saving setting '{key}': {e}")
+            return False
+        return False
+
+    async def delete_setting(self, key: str) -> bool:
+        """Delete a bot setting by key."""
+        try:
+            if self.is_mongo and self.mongo_db is not None:
+                await self.mongo_db.bot_settings.delete_one({"key": key})
+                return True
+            elif self.is_postgres:
+                async def _run(conn):
+                    await conn.execute("DELETE FROM bot_settings WHERE key = $1;", key)
+                await self._execute_pg_with_retry(_run)
+                return True
+            elif self.sqlite_conn:
+                await self.sqlite_conn.execute("DELETE FROM bot_settings WHERE key = ?;", (key,))
+                await self.sqlite_conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting setting '{key}': {e}")
             return False
         return False
 
