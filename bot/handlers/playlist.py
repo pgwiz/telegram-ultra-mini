@@ -1,6 +1,7 @@
 """Playlist and album batch download handlers with interactive batch sizing and Smart Mode."""
 
 import asyncio
+import os
 import logging
 import time
 import uuid

@@ -12,7 +12,7 @@ import asyncio
 from typing import Optional, Dict, Any
 from aiogram import Bot
 from aiogram.types import FSInputFile, Message
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError
 from bot.config import settings
 from bot.database import db
 
@@ -113,6 +113,73 @@ class StorageManager:
                 return False
         return False
 
+    async def _send_direct_to_user(
+        self,
+        bot: Bot,
+        user_chat_id: int,
+        file_path: str,
+        is_video: bool,
+        clean_title: str,
+        clean_artist: str,
+        title: str,
+        artist: Optional[str],
+        quality: str,
+        safe_duration: int,
+        thumb_input: Optional[FSInputFile],
+        track_id: str
+    ) -> bool:
+        """Fallback helper to deliver audio/video directly to user when storage channel is inaccessible."""
+        for attempt in range(1, 4):
+            try:
+                if is_video:
+                    v_input = FSInputFile(file_path, filename=f"{clean_title}.mp4")
+                    await bot.send_video(
+                        chat_id=user_chat_id,
+                        video=v_input,
+                        caption=f"🎬 <b>{title}</b>\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}",
+                        duration=safe_duration,
+                        thumbnail=thumb_input,
+                        supports_streaming=True,
+                        parse_mode="HTML"
+                    )
+                else:
+                    ext = os.path.splitext(file_path)[1].lstrip(".") or "mp3"
+                    if ext not in ("mp3", "m4a", "ogg", "flac"):
+                        ext = "mp3"
+                    a_input = FSInputFile(file_path, filename=f"{clean_artist} - {clean_title}.{ext}")
+                    await bot.send_audio(
+                        chat_id=user_chat_id,
+                        audio=a_input,
+                        title=title,
+                        performer=artist or "Unknown Artist",
+                        duration=safe_duration,
+                        thumbnail=thumb_input,
+                        caption=f"🎵 {title}\n👤 {artist or 'Unknown'}\n⚙️ Quality: {quality}"
+                    )
+
+                try:
+                    await db.add_history(
+                        user_chat_id=user_chat_id,
+                        track_id=track_id,
+                        title=title,
+                        quality=quality,
+                        channel_msg_id=0
+                    )
+                except Exception as hist_err:
+                    logger.debug(f"History logging notice: {hist_err}")
+
+                logger.info(f"Delivered track {track_id} directly to user {user_chat_id} (storage channel fallback).")
+                return True
+            except TelegramRetryAfter as e:
+                logger.warning(f"FloodWait during direct send ({e.retry_after}s). Sleeping...")
+                await asyncio.sleep(e.retry_after + 1.0)
+            except Exception as e:
+                logger.error(f"Direct send attempt {attempt} failed for {track_id}: {e}")
+                if attempt == 3:
+                    return False
+                await asyncio.sleep(1.0)
+        return False
+
     async def upload_and_cache(
         self,
         bot: Bot,
@@ -129,6 +196,7 @@ class StorageManager:
     ) -> bool:
         """
         Upload audio/video file to storage channel, index in Neon DB, and copy to user.
+        Falls back to direct user delivery if the storage channel is inaccessible.
         """
         if not os.path.exists(file_path):
             logger.error(f"Cannot upload: file does not exist {file_path}")
@@ -154,6 +222,24 @@ class StorageManager:
         # Sanitize filenames for Telegram multipart upload
         clean_title = re.sub(r'[\\/*?:"<>|\r\n]+', "", title).strip() or "Track"
         clean_artist = re.sub(r'[\\/*?:"<>|\r\n]+', "", artist or "Artist").strip() or "Artist"
+
+        # Direct-to-user shortcut if no channel configured
+        if not self.channel_id:
+            logger.warning(f"No STORAGE_CHANNEL_ID configured. Delivering directly to user {user_chat_id}.")
+            return await self._send_direct_to_user(
+                bot=bot,
+                user_chat_id=user_chat_id,
+                file_path=file_path,
+                is_video=is_video,
+                clean_title=clean_title,
+                clean_artist=clean_artist,
+                title=title,
+                artist=artist,
+                quality=quality,
+                safe_duration=safe_duration,
+                thumb_input=thumb_input,
+                track_id=track_id
+            )
 
         try:
             for attempt in range(1, 4):
@@ -235,7 +321,40 @@ class StorageManager:
                 except TelegramRetryAfter as e:
                     logger.warning(f"Telegram FloodWait during upload_and_cache ({e.retry_after}s). Sleeping...")
                     await asyncio.sleep(e.retry_after + 1.0)
+                except (TelegramBadRequest, TelegramForbiddenError) as e:
+                    logger.warning(f"Storage channel {self.channel_id} inaccessible ({e}). Falling back to direct user delivery to {user_chat_id}.")
+                    return await self._send_direct_to_user(
+                        bot=bot,
+                        user_chat_id=user_chat_id,
+                        file_path=file_path,
+                        is_video=is_video,
+                        clean_title=clean_title,
+                        clean_artist=clean_artist,
+                        title=title,
+                        artist=artist,
+                        quality=quality,
+                        safe_duration=safe_duration,
+                        thumb_input=thumb_input,
+                        track_id=track_id
+                    )
                 except Exception as e:
+                    err_msg = str(e).lower()
+                    if "chat not found" in err_msg or "chat is not accessible" in err_msg:
+                        logger.warning(f"Storage channel {self.channel_id} chat not found ({e}). Falling back to direct user delivery to {user_chat_id}.")
+                        return await self._send_direct_to_user(
+                            bot=bot,
+                            user_chat_id=user_chat_id,
+                            file_path=file_path,
+                            is_video=is_video,
+                            clean_title=clean_title,
+                            clean_artist=clean_artist,
+                            title=title,
+                            artist=artist,
+                            quality=quality,
+                            safe_duration=safe_duration,
+                            thumb_input=thumb_input,
+                            track_id=track_id
+                        )
                     logger.error(f"Error in upload_and_cache for {track_id}: {e}", exc_info=True)
                     return False
 

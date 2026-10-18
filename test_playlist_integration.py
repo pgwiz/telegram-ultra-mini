@@ -1,5 +1,6 @@
 """Unit tests for playlist batch sizing, Smart Mode state machine, and button styling."""
 
+import os
 import unittest
 import asyncio
 from bot.api_client import api_client
@@ -122,6 +123,52 @@ class TestPlaylistBatch(unittest.IsolatedAsyncioTestCase):
                     os.remove(temp_db)
                 except Exception:
                     pass
+
+    async def test_upload_and_cache_direct_user_fallback(self):
+        """Verify upload_and_cache falls back directly to user when channel raises 'chat not found'."""
+        from unittest.mock import AsyncMock, MagicMock
+        from aiogram.exceptions import TelegramBadRequest
+        from bot.storage import storage_manager
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tf:
+            tf.write(b"fake audio data")
+            tf_path = tf.name
+
+        mock_bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.audio.file_id = "audio_123"
+        mock_msg.message_id = 999
+
+        def mock_send_audio(*args, **kwargs):
+            if kwargs.get("chat_id") == storage_manager.channel_id:
+                raise TelegramBadRequest(method="sendAudio", message="Telegram server says - Bad Request: chat not found")
+            return mock_msg
+
+        mock_bot.send_audio.side_effect = mock_send_audio
+
+        try:
+            success = await storage_manager.upload_and_cache(
+                bot=mock_bot,
+                user_chat_id=987654,
+                file_path=tf_path,
+                track_id="fallback_trk",
+                quality="audio_high",
+                title="Test Song",
+                artist="Test Artist",
+                duration=180
+            )
+            self.assertTrue(success)
+            # Verify mock_bot.send_audio was called with user_chat_id=987654
+            calls = mock_bot.send_audio.call_args_list
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0].kwargs.get("chat_id"), storage_manager.channel_id)
+            self.assertEqual(calls[1].kwargs.get("chat_id"), 987654)
+            # Verify temp file was purged
+            self.assertFalse(os.path.exists(tf_path))
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
 
 
 if __name__ == "__main__":

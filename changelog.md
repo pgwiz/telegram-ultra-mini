@@ -5,6 +5,18 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-10-18
+
+### Fixed
+- **Missing `os` Import in Playlist Handler:**
+  - Added `import os` in `bot/handlers/playlist.py`, resolving the `NameError: name 'os' is not defined` crash during pipelined download cleanup.
+- **Resilient Direct-to-User Delivery Fallback:**
+  - Implemented `_send_direct_to_user` in `bot/storage.py`: when `bot.send_audio`/`bot.send_video` to `STORAGE_CHANNEL_ID` raises `TelegramBadRequest` (e.g. `Bad Request: chat not found`) or `TelegramForbiddenError` (bot not added as administrator to the channel), the bot automatically routes delivery directly to the user's chat.
+  - Guarantees batch playlist and single-track downloads succeed without pausing or failing even if the storage channel is misconfigured, private, or inaccessible.
+  - Preserves zero-disk footprint by immediately unlinking local temp audio/video files in both direct and channel pathways.
+- **Automated Fallback Test Suite:**
+  - Added `test_upload_and_cache_direct_user_fallback` to `test_playlist_integration.py` validating simulated `chat not found` exceptions, direct-to-user fallback routing, and instant disk unlinking.
+
 ## [1.5.6] - 2026-10-18
 
 ### Added
