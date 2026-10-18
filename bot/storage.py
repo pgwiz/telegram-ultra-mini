@@ -190,6 +190,16 @@ class StorageManager:
 
                     channel_msg_id = channel_msg.message_id
 
+                    # Zero-disk footprint: immediately purge local file as soon as Telegram channel stores it
+                    if settings.AUTO_CLEANUP_TEMP:
+                        try:
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+                            if thumbnail_path and os.path.exists(thumbnail_path):
+                                os.remove(thumbnail_path)
+                        except Exception as clean_err:
+                            logger.debug(f"Immediate temp file cleanup notice: {clean_err}")
+
                     # 2. Persist message ID and metadata into DB
                     await db.save_cached_track(
                         track_id=track_id,

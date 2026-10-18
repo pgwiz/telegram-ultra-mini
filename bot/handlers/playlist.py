@@ -491,119 +491,194 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             pass
         await asyncio.sleep(1.5)
 
+        # 4. Pipelined download & upload loop (download next while uploading previous to channel)
+        async def _fetch_single_track(trk: Dict[str, Any]) -> Dict[str, Any]:
+            """Helper to resolve metadata and download a track, or verify channel cache."""
+            t_title = trk.get("title") or trk.get("name") or "Track"
+            t_artist = trk.get("artist") or trk.get("subtitle") or "Unknown Artist"
+            vid = trk.get("videoId")
+
+            # Resolve missing videoId for Spotify tracks if needed
+            if not vid:
+                try:
+                    q = f"{t_title} {t_artist}"
+                    s_res = await api_client.search_tracks(q, limit=1)
+                    if s_res and s_res[0].get("videoId"):
+                        vid = s_res[0]["videoId"]
+                        trk["videoId"] = vid
+                except Exception as res_err:
+                    logger.debug(f"Could not resolve videoId for '{t_title}': {res_err}")
+
+            # Check instant storage cache before downloading
+            if vid:
+                cached_item = await storage_manager.find_cached(track_id=vid, quality="audio_high")
+                if cached_item and cached_item.get("channel_msg_id"):
+                    return {
+                        "track": trk,
+                        "status": "cached",
+                        "cached": cached_item,
+                        "title": t_title,
+                        "artist": t_artist,
+                        "videoId": vid
+                    }
+
+            # Download track to local temp file (with 120s timeout guard)
+            target = vid or trk.get("url") or f"{t_title} {t_artist}"
+            try:
+                f_path, th_path, m_data = await asyncio.wait_for(
+                    downloader.download_track(target, quality="audio_high"),
+                    timeout=120.0
+                )
+                if f_path and os.path.exists(f_path):
+                    return {
+                        "track": trk,
+                        "status": "downloaded",
+                        "file_path": f_path,
+                        "thumb_path": th_path,
+                        "meta": m_data,
+                        "cached_id": vid or target,
+                        "title": t_title,
+                        "artist": t_artist,
+                        "duration": m_data.get("duration") or trk.get("duration")
+                    }
+            except asyncio.TimeoutError:
+                logger.warning(f"Track download timed out (120s) for {t_title} - {t_artist}")
+            except Exception as dl_err:
+                logger.warning(f"Track download error for {t_title} - {t_artist}: {dl_err}")
+
+            return {
+                "track": trk,
+                "status": "failed",
+                "title": t_title,
+                "artist": t_artist
+            }
+
+        # Pipeline: Pre-fetch track 1 immediately
+        current_fetch_task: Optional[asyncio.Task] = None
+        if new_tracks:
+            current_fetch_task = asyncio.create_task(_fetch_single_track(new_tracks[0]))
+
         for idx, track in enumerate(new_tracks, 1):
             if session.status == "stopped":
+                if current_fetch_task and not current_fetch_task.done():
+                    current_fetch_task.cancel()
                 break
 
             title = track.get("title") or track.get("name") or f"Track {idx}"
             artist = track.get("artist") or track.get("subtitle") or "Unknown Artist"
-            video_id = track.get("videoId")
-
-            # Update live progress status
             mode_tag = " (Smart Mode)" if session.smart_mode else ""
+
+            # Update status message: downloading current track
             try:
                 await status_msg.edit_text(
-                    f"📥 <b>Downloading [{idx}/{new_total}]{mode_tag}:</b>\n"
+                    f"📥 <b>Processing [{idx}/{new_total}]{mode_tag}:</b>\n"
                     f"🎵 <b>{title}</b>\n"
                     f"👤 <i>{artist}</i>",
                     reply_markup=stop_keyboard,
                     parse_mode="HTML"
                 )
             except TelegramRetryAfter as e:
-                logger.warning(f"Telegram FloodWait on status edit: {e.retry_after}s")
                 await asyncio.sleep(e.retry_after + 0.5)
             except Exception:
                 pass
 
-            # Smart Mode Retry Loop (up to 3 retries if user chooses retry)
-            max_track_retries = 3
-            track_attempt = 0
+            # Await the in-flight download of the current track
+            if current_fetch_task:
+                try:
+                    fetch_res = await current_fetch_task
+                except Exception as e:
+                    fetch_res = {"status": "failed", "title": title, "artist": artist}
+            else:
+                fetch_res = await _fetch_single_track(track)
+
+            # PIPELINING: If there is a next track, launch its download in background NOW!
+            next_fetch_task: Optional[asyncio.Task] = None
+            if idx < new_total and session.status != "stopped":
+                next_fetch_task = asyncio.create_task(_fetch_single_track(new_tracks[idx]))
+
             track_succeeded = False
 
-            while track_attempt < max_track_retries and not track_succeeded:
-                track_attempt += 1
+            if fetch_res.get("status") == "cached":
+                # Instant delivery from storage channel cache (0 bytes disk)
+                cached_doc = fetch_res["cached"]
+                delivered = await storage_manager.deliver_cached_msg(
+                    bot=bot,
+                    user_chat_id=session.chat_id,
+                    channel_msg_id=cached_doc["channel_msg_id"],
+                    track_id=fetch_res.get("videoId") or f"cached_{idx}",
+                    title=title,
+                    quality="audio_high"
+                )
+                if delivered:
+                    session.completed_count += 1
+                    track_succeeded = True
 
-                # Dynamically resolve missing videoId for Spotify tracks
-                if not video_id:
-                    try:
-                        query = f"{title} {artist}"
-                        search_results = await api_client.search_tracks(query, limit=1)
-                        if search_results and search_results[0].get("videoId"):
-                            video_id = search_results[0]["videoId"]
-                            track["videoId"] = video_id
-                    except Exception as res_err:
-                        logger.warning(f"Could not resolve videoId for '{title}': {res_err}")
+            elif fetch_res.get("status") == "downloaded":
+                f_path = fetch_res["file_path"]
+                th_path = fetch_res.get("thumb_path")
+                c_id = fetch_res.get("cached_id") or f"track_{idx}"
+                dur = fetch_res.get("duration")
 
-                # Check instant channel storage cache one more time with resolved videoId
-                if video_id:
-                    delivered = await storage_manager.deliver_cached(
-                        bot=bot,
-                        user_chat_id=session.chat_id,
-                        track_id=video_id,
-                        quality="audio_high"
-                    )
-                    if delivered:
-                        session.completed_count += 1
-                        track_succeeded = True
-                        break
-
-                # Download & Cache to channel
-                target_ident = video_id or track.get("url") or f"{title} {artist}"
                 try:
-                    file_path, thumb_path, meta = await asyncio.wait_for(
-                        downloader.download_track(target_ident, quality="audio_high"),
-                        timeout=120.0
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(f"Track download timed out (120s) for {title} - {artist}")
-                    file_path, thumb_path, meta = None, None, {}
+                    # Update status: uploading to channel while next track downloads in parallel
+                    try:
+                        next_title = new_tracks[idx].get("title") or new_tracks[idx].get("name") if idx < new_total else ""
+                        next_hint = f"\n⚡ <i>(Downloading next track in parallel...)</i>" if next_title else ""
+                        await status_msg.edit_text(
+                            f"📤 <b>Uploading to channel & delivering [{idx}/{new_total}]{mode_tag}:</b>\n"
+                            f"🎵 <b>{title}</b>\n"
+                            f"👤 <i>{artist}</i>{next_hint}",
+                            reply_markup=stop_keyboard,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
 
-                if file_path:
-                    cached_id = video_id or target_ident
-                    await storage_manager.upload_and_cache(
+                    # Upload to storage channel -> purge local file instantly -> copy message to user
+                    success = await storage_manager.upload_and_cache(
                         bot=bot,
                         user_chat_id=session.chat_id,
-                        file_path=file_path,
-                        track_id=cached_id,
+                        file_path=f_path,
+                        track_id=c_id,
                         quality="audio_high",
                         title=title,
                         artist=artist,
-                        duration=meta.get("duration") or track.get("duration"),
-                        thumbnail_path=thumb_path,
+                        duration=dur,
+                        thumbnail_path=th_path,
                         source="api_playlist"
                     )
-                    session.completed_count += 1
-                    track_succeeded = True
-                    break
+                    if success:
+                        session.completed_count += 1
+                        track_succeeded = True
+                finally:
+                    # Guarantee local file is immediately wiped from disk
+                    try:
+                        if f_path and os.path.exists(f_path):
+                            os.remove(f_path)
+                        if th_path and os.path.exists(th_path):
+                            os.remove(th_path)
+                    except Exception:
+                        pass
 
-                # Handle Track Failure
-                logger.warning(f"Track failed [{idx}/{new_total}]: {title} - {artist} (attempt {track_attempt})")
+            # Smart Mode Retry / Pause if failed
+            if not track_succeeded:
+                logger.warning(f"Track failed [{idx}/{new_total}]: {title} - {artist}")
+                if session.smart_mode:
+                    if next_fetch_task and not next_fetch_task.done():
+                        next_fetch_task.cancel()
+                        next_fetch_task = None
 
-                if session.smart_mode and track_attempt >= 1:
-                    # SMART MODE: Pause and Prompt User
                     session.status = "paused"
                     session.action_event.clear()
                     session.action_choice = ""
 
                     action_buttons = [
                         [
-                            InlineKeyboardButton(
-                                text="Retry Track",
-                                callback_data=f"pl:act:{session.session_id}:retry",
-                                style="success"
-                            ),
-                            InlineKeyboardButton(
-                                text="Skip Track",
-                                callback_data=f"pl:act:{session.session_id}:skip",
-                                style="primary"
-                            )
+                            InlineKeyboardButton(text="Retry Track", callback_data=f"pl:act:{session.session_id}:retry", style="success"),
+                            InlineKeyboardButton(text="Skip Track", callback_data=f"pl:act:{session.session_id}:skip", style="primary")
                         ],
                         [
-                            InlineKeyboardButton(
-                                text="Stop Batch",
-                                callback_data=f"pl:act:{session.session_id}:stop",
-                                style="danger"
-                            )
+                            InlineKeyboardButton(text="Stop Batch", callback_data=f"pl:act:{session.session_id}:stop", style="danger")
                         ]
                     ]
 
@@ -616,7 +691,6 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
                         parse_mode="HTML"
                     )
 
-                    # Wait up to 10 minutes for user decision
                     try:
                         await asyncio.wait_for(session.action_event.wait(), timeout=600.0)
                     except asyncio.TimeoutError:
@@ -624,26 +698,54 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
 
                     if session.action_choice == "retry":
                         session.status = "running"
-                        continue  # retry current track in while loop
+                        retry_res = await _fetch_single_track(track)
+                        if retry_res.get("status") == "downloaded":
+                            r_path = retry_res["file_path"]
+                            r_th = retry_res.get("thumb_path")
+                            try:
+                                r_succ = await storage_manager.upload_and_cache(
+                                    bot=bot,
+                                    user_chat_id=session.chat_id,
+                                    file_path=r_path,
+                                    track_id=retry_res.get("cached_id") or f"track_{idx}",
+                                    quality="audio_high",
+                                    title=title,
+                                    artist=artist,
+                                    duration=retry_res.get("duration"),
+                                    thumbnail_path=r_th,
+                                    source="api_playlist"
+                                )
+                                if r_succ:
+                                    session.completed_count += 1
+                                    track_succeeded = True
+                            finally:
+                                try:
+                                    if r_path and os.path.exists(r_path):
+                                        os.remove(r_path)
+                                    if r_th and os.path.exists(r_th):
+                                        os.remove(r_th)
+                                except Exception:
+                                    pass
+
                     elif session.action_choice == "stop":
                         session.status = "stopped"
-                        break  # stop whole batch
+                        break
                     else:
-                        # "skip"
                         session.status = "running"
-                        break  # skip to next track
-                else:
-                    # Non-smart mode: skip immediately
-                    break
 
-            if not track_succeeded:
-                session.failed_count += 1
+                if not track_succeeded:
+                    session.failed_count += 1
 
             if session.status == "stopped":
+                if next_fetch_task and not next_fetch_task.done():
+                    next_fetch_task.cancel()
                 break
 
-            # Sleep 2.0s to respect Telegram rate limits and avoid FloodWait
-            await asyncio.sleep(2.0)
+            # Advance pipeline: current task becomes next task
+            current_fetch_task = next_fetch_task
+
+            # Brief sleep to avoid Telegram rate limits
+            await asyncio.sleep(1.0)
 
         # Final completion report
         new_downloaded = session.completed_count - library_delivered

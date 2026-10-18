@@ -5,6 +5,18 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-10-18
+
+### Added
+- **Pipelined Concurrent Download & Upload Architecture:**
+  - Implemented asynchronous producer-consumer pipelining: while track $N$ is uploading to the private Telegram storage channel, track $N+1$ downloads concurrently in the background.
+  - Slashes total batch execution time by eliminating dead time between sequential downloads and uploads.
+- **Zero-Disk Immediate Local File Purge:**
+  - Local audio/video files are now deleted immediately upon successful upload to the storage channel, before DB record save and user `copy_message` delivery.
+  - Ensures local server disk footprint never exceeds 1–2 tracks (~10–20 MB total) across any playlist batch size (25, 50, 100, or All).
+- **Proactive Stale Temp File Sweeper:**
+  - Added `Downloader.clean_stale_files(240)` automatically sweeping orphan `.raw`, `.part`, or temporary chunk files older than 4 minutes before every download.
+
 ## [1.5.5] - 2026-10-18
 
 ### Added

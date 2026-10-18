@@ -12,6 +12,7 @@ from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 import httpx
 import shutil
+import time
 from bot.config import settings
 from bot.api_client import api_client
 
@@ -44,6 +45,24 @@ class Downloader:
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_DL)
 
+    def clean_stale_files(self, max_age_secs: int = 180) -> int:
+        """Purge orphan or abandoned temp files older than max_age_secs to keep disk usage near zero."""
+        cleaned = 0
+        now = time.time()
+        try:
+            if self.download_dir.exists():
+                for p in self.download_dir.glob("*"):
+                    if p.is_file():
+                        try:
+                            if now - p.stat().st_mtime > max_age_secs:
+                                p.unlink()
+                                cleaned += 1
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"clean_stale_files notice: {e}")
+        return cleaned
+
     async def download_track(
         self,
         identifier: str,
@@ -54,6 +73,7 @@ class Downloader:
         Download track using ytsp-api (Primary) or yt-dlp (Fallback).
         Returns: (file_path, thumbnail_path, metadata)
         """
+        self.clean_stale_files(max_age_secs=240)
         async with self.semaphore:
             if not force_fallback:
                 try:
