@@ -63,6 +63,8 @@
 | `/ping` | Health check with database latency and RAM cache size |
 | `/chatid` | Display your Telegram chat ID |
 | `/stats` | Admin system metrics and channel storage count |
+| `/logs [limit]` | Admin live in-memory logs viewer directly in chat |
+| `/admin` | Interactive Admin Control Panel (stats, logs, cleanup, cache) |
 
 > 💡 **Smart Input Detection:**
 > - **Links:** Paste any YouTube or Spotify URL directly into the chat to download immediately.

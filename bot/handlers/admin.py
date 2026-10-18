@@ -21,9 +21,10 @@ def make_admin_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📊 System Stats", callback_data="adm:stats"),
-            InlineKeyboardButton(text="🧹 Run Cleanup", callback_data="adm:cleanup")
+            InlineKeyboardButton(text="📜 View Logs", callback_data="adm:logs")
         ],
         [
+            InlineKeyboardButton(text="🧹 Run Cleanup", callback_data="adm:cleanup"),
             InlineKeyboardButton(text="⚡ Clear RAM Cache", callback_data="adm:cache_clear")
         ]
     ])
@@ -236,6 +237,43 @@ async def handle_admin_callback(callback: CallbackQuery):
     elif action == "cache_clear":
         cache.clear_ram()
         await callback.answer("RAM cache cleared!", show_alert=True)
+
+    elif action == "logs":
+        from bot.main import memory_log_handler
+        logs = list(memory_log_handler.buffer)[-15:]
+        log_text = "\n".join(logs) if logs else "No logs captured yet."
+        if len(log_text) > 3500:
+            log_text = log_text[-3500:]
+        escaped = log_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        text = f"📜 <b>Recent Live Logs:</b>\n<pre>{escaped}</pre>"
+        await callback.message.edit_text(text, reply_markup=make_admin_keyboard(), parse_mode="HTML")
+        await callback.answer("Logs refreshed")
+
+
+@router.message(Command("logs"))
+async def handle_logs(message: Message):
+    """Handle /logs [limit] command for admin."""
+    user_id = message.from_user.id if message.from_user else 0
+    if not await db.is_admin(user_id):
+        await message.answer("⛔ Access denied. Admin only.")
+        return
+
+    from bot.main import memory_log_handler
+    limit = 20
+    args = message.text.split()
+    if len(args) > 1 and args[1].isdigit():
+        limit = min(max(int(args[1]), 5), 50)
+
+    logs = list(memory_log_handler.buffer)[-limit:]
+    if not logs:
+        await message.answer("📭 No logs captured yet.")
+        return
+
+    log_text = "\n".join(logs)
+    if len(log_text) > 3800:
+        log_text = log_text[-3800:]
+    escaped = log_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"📋 <b>Recent Logs (last {len(logs)}):</b>\n<pre>{escaped}</pre>", parse_mode="HTML")
 
 
 @router.message(Command("history"))

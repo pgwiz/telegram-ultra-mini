@@ -196,16 +196,22 @@ async def start_playlist_flow(message: Message, bot: Bot, platform: str, identif
         )
         ACTIVE_SESSIONS[session_id] = session
 
-        # Quick pre-scan for tracks already in database cache
-        existing_in_db = 0
-        for t in tracks:
-            t_title = t.get("title") or t.get("name")
-            t_artist = t.get("artist") or t.get("subtitle")
-            t_vid = t.get("videoId")
-            cached = await storage_manager.find_cached(track_id=t_vid, title=t_title, artist=t_artist, quality="audio_high")
-            if cached:
-                existing_in_db += 1
-                t["cached_info"] = cached
+        # Quick pre-scan for tracks already in database cache (parallelized)
+        async def _check_track(t):
+            try:
+                t_title = t.get("title") or t.get("name")
+                t_artist = t.get("artist") or t.get("subtitle")
+                t_vid = t.get("videoId")
+                cached = await storage_manager.find_cached(track_id=t_vid, title=t_title, artist=t_artist, quality="audio_high")
+                if cached:
+                    t["cached_info"] = cached
+                    return True
+            except Exception:
+                pass
+            return False
+
+        check_results = await asyncio.gather(*[_check_track(t) for t in tracks], return_exceptions=True)
+        existing_in_db = sum(1 for r in check_results if r is True)
 
         cached_line = f"📦 <b>Already in Library:</b> <code>{existing_in_db}</code> tracks\n" if existing_in_db > 0 else ""
 

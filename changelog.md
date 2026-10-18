@@ -5,6 +5,24 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-10-18
+
+### Added
+- **Live In-Memory Web Logs Console (`/logs`):**
+  - Added `MemoryLogHandler` capturing up to 1000 application log records in an in-memory ring buffer.
+  - Added public `/logs` web endpoint displaying a dark-themed responsive terminal console with real-time state, auto-refresh, and raw text export (`/logs?format=text`).
+  - Added `POST /logs/clear` endpoint.
+- **Telegram Admin Logs Viewer (`/logs`):**
+  - Added `/logs [limit]` admin command to view live system logs and tracebacks directly within Telegram chat.
+  - Added interactive `[ View Logs ]` button to the `/admin` control panel.
+- **Supervised Bot Polling Loop & Auto-Reconnect:**
+  - Replaced un-supervised polling task with `polling_supervisor()` that automatically recovers from network disconnects or transient conflicts.
+  - Preserved pending updates (`drop_pending_updates=False`) so user commands sent during server boot or deployment are never dropped.
+- **Render Free-Tier Container Keepalive:**
+  - Added background keepalive loop pinging the public `/health` endpoint every 9 minutes, preventing Render free-tier containers from spinning down to sleep.
+- **Parallelized Playlist Pre-Scan:**
+  - Optimized playlist pre-flight library analysis with `asyncio.gather`, executing up to 100 cache lookups in parallel in <500ms instead of 20s.
+
 ## [1.5.4] - 2026-10-18
 
 ### Fixed
