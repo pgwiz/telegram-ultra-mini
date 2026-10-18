@@ -5,6 +5,28 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-10-18
+
+### Added
+- **Channel Manager Web Dashboard (`/channel` & `/channels`):**
+  - Added secure web route accessible at `https://telegram-ultra-mini.onrender.com/channel?token=bf48c7ef-17fd-4bdd-aace-bc6f18403e18`.
+  - Unauthorized visitors without the token receive no response (404 empty).
+  - Admin view renders live channel title, handle, bot membership/posting rights, live error details, and an instant `[ 📢 Open Storage Channel in Telegram ↗️ ]` button.
+  - Includes a web form to update and switch the `STORAGE_CHANNEL_ID` dynamically without code changes or redeployments.
+- **Channel Manager Telegram Admin Controls:**
+  - Added `/channel` and `/channels` command in Telegram. Non-admin users receive NO response (strictly silent). Admin receives channel diagnostics, bot posting permissions, invite link, and an interactive inline keyboard to open the channel or open the web dashboard.
+  - Added `/setchannel <channel_id>` to set and test a new channel ID on the fly.
+  - Added channel forward auto-detection: when admin forwards any message from a channel to the bot, the bot automatically extracts the channel ID, verifies administrator permissions, and binds the channel.
+  - Added `[ 📢 Channel Manager ]` button to the `/admin` control panel.
+- **Dynamic Settings Persistence:**
+  - Added `bot_settings` table/collection across MongoDB Atlas, Neon PostgreSQL, and SQLite with `get_setting` and `set_setting` helpers.
+  - `StorageManager.sync_channel_id` automatically syncs the active channel ID across scale-to-zero restarts and container boots.
+
+### Fixed
+- **Downloader Stream Transcode & Cross-Platform Path Guard:**
+  - Fixed stream proxy transcode flow: raw stream files (`.raw`) are now preserved if ffmpeg transcode fails or times out, safely falling back to AAC `.m4a` without triggering `FileNotFoundError: [Errno 2] No such file or directory`.
+  - Added Windows drive path sanitizer in `bot/config.py` and `bot/downloader.py`, automatically normalizing any Windows paths (e.g. `D:/...`) to `./downloads` when running on Linux/Render.
+
 ## [1.5.7] - 2026-10-18
 
 ### Fixed

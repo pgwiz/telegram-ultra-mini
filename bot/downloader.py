@@ -41,7 +41,10 @@ def parse_duration_seconds(duration_val: Any) -> int:
 
 class Downloader:
     def __init__(self):
-        self.download_dir = Path(settings.DOWNLOAD_DIR)
+        dl_dir_str = settings.DOWNLOAD_DIR
+        if os.name != "nt" and len(dl_dir_str) >= 2 and dl_dir_str[1] == ":":
+            dl_dir_str = "./downloads"
+        self.download_dir = Path(dl_dir_str)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_DL)
 
@@ -244,13 +247,14 @@ class Downloader:
                                         proc.kill()
                                     except Exception:
                                         pass
-                                if os.path.exists(temp_raw_path):
-                                    try:
-                                        os.remove(temp_raw_path)
-                                    except Exception:
-                                        pass
 
                                 if os.path.exists(final_audio_path) and os.path.getsize(final_audio_path) > 1000:
+                                    # Successfully transcoded to MP3, safe to remove raw stream
+                                    if os.path.exists(temp_raw_path):
+                                        try:
+                                            os.remove(temp_raw_path)
+                                        except Exception:
+                                            pass
                                     metadata = {
                                         "title": title,
                                         "artist": artist,
@@ -262,20 +266,21 @@ class Downloader:
                                     }
                                     return final_audio_path, thumb_path, metadata
 
-                            # Fallback if ffmpeg is not present: save as .m4a so Telegram plays AAC smoothly
-                            final_m4a_path = str(self.download_dir / f"{task_id}.m4a")
-                            os.replace(temp_raw_path, final_m4a_path)
-                            metadata = {
-                                "title": title,
-                                "artist": artist,
-                                "duration": duration_secs,
-                                "videoId": meta.get("videoId") or identifier,
-                                "source": "api_stream_m4a",
-                                "is_video": False,
-                                "quality": quality,
-                                "ext": "m4a"
-                            }
-                            return final_m4a_path, thumb_path, metadata
+                            # Fallback if ffmpeg is not present or failed: save raw stream as .m4a
+                            if os.path.exists(temp_raw_path):
+                                final_m4a_path = str(self.download_dir / f"{task_id}.m4a")
+                                os.replace(temp_raw_path, final_m4a_path)
+                                metadata = {
+                                    "title": title,
+                                    "artist": artist,
+                                    "duration": duration_secs,
+                                    "videoId": meta.get("videoId") or identifier,
+                                    "source": "api_stream_m4a",
+                                    "is_video": False,
+                                    "quality": quality,
+                                    "ext": "m4a"
+                                }
+                                return final_m4a_path, thumb_path, metadata
 
                 except Exception as stream_err:
                     logger.warning(f"Stream proxy download failed: {stream_err}")

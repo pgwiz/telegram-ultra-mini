@@ -326,6 +326,7 @@ class Database:
                 [("user_chat_id", 1), ("action", 1)],
                 unique=True
             )
+            await self.mongo_db.bot_settings.create_index("key", unique=True)
             logger.info("MongoDB indexes verified successfully.")
 
         # ── PostgreSQL Migrations ──
@@ -380,6 +381,12 @@ class Database:
                         attempt_count INTEGER DEFAULT 1,
                         window_start TIMESTAMP WITH TIME ZONE NOT NULL,
                         PRIMARY KEY (user_chat_id, action)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS bot_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     );
 
                     CREATE INDEX IF NOT EXISTS idx_channel_storage_track ON channel_storage(track_id);
@@ -439,6 +446,12 @@ class Database:
                     attempt_count INTEGER DEFAULT 1,
                     window_start TEXT NOT NULL,
                     PRIMARY KEY (user_chat_id, action)
+                );
+
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT DEFAULT (datetime('now'))
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_channel_storage_track ON channel_storage(track_id);
@@ -1191,6 +1204,57 @@ class Database:
         except Exception as e:
             logger.warning(f"Error checking admin status for {user_id}: {e}")
             return False
+
+    async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Retrieve a bot setting value by key."""
+        try:
+            if self.is_mongo and self.mongo_db is not None:
+                doc = await self.mongo_db.bot_settings.find_one({"key": key})
+                return doc.get("value") if doc else default
+            elif self.is_postgres:
+                async def _run(conn):
+                    return await conn.fetchval("SELECT value FROM bot_settings WHERE key = $1;", key)
+                res = await self._execute_pg_with_retry(_run)
+                return res if res is not None else default
+            elif self.sqlite_conn:
+                async with self.sqlite_conn.execute("SELECT value FROM bot_settings WHERE key = ?;", (key,)) as cursor:
+                    row = await cursor.fetchone()
+                    return row[0] if row else default
+        except Exception as e:
+            logger.warning(f"Error reading setting '{key}': {e}")
+        return default
+
+    async def set_setting(self, key: str, value: str) -> bool:
+        """Upsert a bot setting value by key."""
+        try:
+            if self.is_mongo and self.mongo_db is not None:
+                await self.mongo_db.bot_settings.update_one(
+                    {"key": key},
+                    {"$set": {"value": str(value), "updated_at": datetime.utcnow()}},
+                    upsert=True
+                )
+                return True
+            elif self.is_postgres:
+                async def _run(conn):
+                    await conn.execute("""
+                        INSERT INTO bot_settings (key, value, updated_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+                    """, key, str(value))
+                await self._execute_pg_with_retry(_run)
+                return True
+            elif self.sqlite_conn:
+                await self.sqlite_conn.execute("""
+                    INSERT INTO bot_settings (key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now');
+                """, (key, str(value)))
+                await self.sqlite_conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error saving setting '{key}': {e}")
+            return False
+        return False
 
 
 db = Database()

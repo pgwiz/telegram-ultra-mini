@@ -49,7 +49,16 @@ class Settings(BaseSettings):
                     values["ADMIN_CHAT_ID"] = int(values["ADMIN_CHAT_ID"].strip().strip('"\''))
                 except ValueError:
                     pass
+            if values.get("DOWNLOAD_DIR") and isinstance(values["DOWNLOAD_DIR"], str):
+                dl_dir = values["DOWNLOAD_DIR"].strip().strip('"\'')
+                # If on Linux/Render but Windows drive letter was configured, fallback to ./downloads
+                if os.name != "nt" and len(dl_dir) >= 2 and dl_dir[1] == ":":
+                    values["DOWNLOAD_DIR"] = "./downloads"
+                else:
+                    values["DOWNLOAD_DIR"] = dl_dir
         return values
+
+    ADMIN_TOKEN: str = Field("bf48c7ef-17fd-4bdd-aace-bc6f18403e18", description="Admin secret token for web dashboards")
 
     # Storage Channel (dump channel for audio messages)
     STORAGE_CHANNEL_ID: int = Field(..., description="Private channel ID (-100...)")
@@ -97,6 +106,8 @@ settings = Settings()
 
 # Safe directory creation with fallback for cross-platform / Render paths
 try:
+    if os.name != "nt" and len(settings.DOWNLOAD_DIR) >= 2 and settings.DOWNLOAD_DIR[1] == ":":
+        settings.DOWNLOAD_DIR = "./downloads"
     Path(settings.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 except Exception as e:
     logger.warning(f"Could not create DOWNLOAD_DIR={settings.DOWNLOAD_DIR} ({e}), falling back to ./downloads")

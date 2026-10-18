@@ -21,10 +21,13 @@ def make_admin_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📊 System Stats", callback_data="adm:stats"),
-            InlineKeyboardButton(text="📜 View Logs", callback_data="adm:logs")
+            InlineKeyboardButton(text="📢 Channel Manager", callback_data="adm:channels")
         ],
         [
-            InlineKeyboardButton(text="🧹 Run Cleanup", callback_data="adm:cleanup"),
+            InlineKeyboardButton(text="📜 View Logs", callback_data="adm:logs"),
+            InlineKeyboardButton(text="🧹 Run Cleanup", callback_data="adm:cleanup")
+        ],
+        [
             InlineKeyboardButton(text="⚡ Clear RAM Cache", callback_data="adm:cache_clear")
         ]
     ])
@@ -248,6 +251,170 @@ async def handle_admin_callback(callback: CallbackQuery):
         text = f"📜 <b>Recent Live Logs:</b>\n<pre>{escaped}</pre>"
         await callback.message.edit_text(text, reply_markup=make_admin_keyboard(), parse_mode="HTML")
         await callback.answer("Logs refreshed")
+
+    elif action in ("channels", "channel_refresh"):
+        text, kb = await get_channel_diagnostics(callback.bot)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await callback.answer("Channel status refreshed")
+
+    elif action == "panel":
+        text = (
+            "👑 <b>Admin Control Panel</b>\n\n"
+            "Manage cloud storage, maintain caches, and monitor performance.\n\n"
+            "<b>Available Admin Commands:</b>\n"
+            "• <code>/channel</code> - Inspect & manage storage channel\n"
+            "• <code>/setchannel &lt;id&gt;</code> - Set active storage channel\n"
+            "• <code>/delete &lt;#track_id&gt;</code> - Purge track from DB & storage channel\n"
+            "• <code>/cleanup</code> - Purge local temp files & expired DB cache\n"
+            "• <code>/stats</code> - Real-time system & database statistics\n"
+            "• <code>/cache_clear</code> - Reset in-memory RAM cache\n\n"
+            "<i>Or use the interactive buttons below:</i>"
+        )
+        await callback.message.edit_text(text, reply_markup=make_admin_keyboard(), parse_mode="HTML")
+        await callback.answer()
+
+
+async def get_channel_diagnostics(bot: Bot):
+    """Inspect current storage channel, test bot permissions, and build management buttons."""
+    cid = await storage_manager.sync_channel_id()
+    bot_me = await bot.get_me()
+    web_url = f"https://telegram-ultra-mini.onrender.com/channel?token={settings.ADMIN_TOKEN}"
+
+    try:
+        chat = await bot.get_chat(cid)
+        title = chat.title or "Storage Channel"
+        chat_type = chat.type
+        username = f"@{chat.username}" if chat.username else "Private"
+
+        open_link = None
+        if chat.username:
+            open_link = f"https://t.me/{chat.username}"
+        elif chat.invite_link:
+            open_link = chat.invite_link
+        else:
+            try:
+                invite = await bot.create_chat_invite_link(cid, name="Storage Manager")
+                open_link = invite.invite_link
+            except Exception:
+                open_link = None
+
+        can_post = True
+        try:
+            m = await bot.get_chat_member(cid, bot_me.id)
+            can_post = getattr(m, "can_post_messages", m.status == "administrator")
+        except Exception:
+            pass
+
+        status_icon = "🟢" if can_post else "🟡"
+        post_badge = "✅ Allowed" if can_post else "⚠️ Restricted (Cannot Post)"
+
+        lines = [
+            f"📢 <b>Storage Channel Manager</b>\n",
+            f"📦 <b>Channel:</b> {title}",
+            f"🆔 <b>Channel ID:</b> <code>{cid}</code>",
+            f"🔒 <b>Type:</b> {chat_type.capitalize()} ({username})",
+            f"🤖 <b>Bot Status:</b> {status_icon} Administrator",
+            f"✍️ <b>Posting Rights:</b> {post_badge}",
+        ]
+        if open_link:
+            lines.append(f"🔗 <b>Invite Link:</b> {open_link}")
+
+        lines.append("\n✅ <i>Channel is connected and accessible. All tracks are cached here and copied instantly to users.</i>")
+
+        buttons = []
+        if open_link:
+            buttons.append([InlineKeyboardButton(text="📢 Open Storage Channel ↗️", url=open_link)])
+        buttons.append([
+            InlineKeyboardButton(text="🌐 Web Channel Manager ↗️", url=web_url),
+            InlineKeyboardButton(text="🔄 Refresh", callback_data="adm:channel_refresh")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="🔙 Back to Admin", callback_data="adm:panel")
+        ])
+        return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    except Exception as e:
+        error_str = str(e)
+        lines = [
+            f"⚠️ <b>Storage Channel Inaccessible</b>\n",
+            f"🆔 <b>Configured ID:</b> <code>{cid}</code>",
+            f"❌ <b>Error:</b> <i>{error_str}</i>\n",
+            f"💡 <b>How to Connect Your Channel:</b>",
+            f"1. Open or create your private channel in Telegram.",
+            f"2. Add <b>@{bot_me.username}</b> as an <b>Administrator</b> with <i>'Post Messages'</i> permission.",
+            f"3. <b>Forward any post from that channel to me right here</b>, or run:",
+            f"   <code>/setchannel &lt;channel_id&gt;</code>\n",
+            f"🌐 <i>Or configure it using the Web Channel Manager below:</i>"
+        ]
+        buttons = [
+            [InlineKeyboardButton(text="🌐 Web Channel Manager ↗️", url=web_url)],
+            [InlineKeyboardButton(text="🔄 Re-test Connection", callback_data="adm:channel_refresh")],
+            [InlineKeyboardButton(text="🔙 Back to Admin", callback_data="adm:panel")]
+        ]
+        return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(Command("channel", "channels"))
+async def handle_channels_command(message: Message, bot: Bot):
+    """Handle /channel and /channels command. Strictly no response for non-admins."""
+    user_id = message.from_user.id if message.from_user else 0
+    # For normal users, return NO RESPONSE (completely silent)
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+
+    text, keyboard = await get_channel_diagnostics(bot)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.message(Command("setchannel"))
+async def handle_setchannel_command(message: Message, bot: Bot):
+    """Handle /setchannel <channel_id> command. Strictly no response for non-admins."""
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer(
+            "Usage: <code>/setchannel &lt;channel_id&gt;</code>\n"
+            "Example: <code>/setchannel -1001234567890</code>\n\n"
+            "<i>Tip: You can also just forward any post from your channel to this chat!</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    raw_id = args[1].strip()
+    try:
+        new_id = int(raw_id)
+    except ValueError:
+        await message.answer("❌ Invalid channel ID. Must be an integer like <code>-100...</code>.", parse_mode="HTML")
+        return
+
+    await storage_manager.set_channel_id(new_id)
+    text, keyboard = await get_channel_diagnostics(bot)
+    await message.answer(f"✅ <b>Storage Channel ID set to <code>{new_id}</code>!</b>\n\n{text}", reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.message(F.forward_from_chat)
+async def handle_forward_from_channel(message: Message, bot: Bot):
+    """Auto-bind storage channel when admin forwards a post from that channel."""
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id != settings.ADMIN_CHAT_ID and not await db.is_admin(user_id):
+        return
+
+    fwd = message.forward_from_chat
+    if not fwd or fwd.type not in ("channel", "supergroup"):
+        return
+
+    new_id = fwd.id
+    title = fwd.title or "Channel"
+    await storage_manager.set_channel_id(new_id)
+    text, keyboard = await get_channel_diagnostics(bot)
+    await message.answer(
+        f"🎉 <b>Detected Channel '{title}' (ID: <code>{new_id}</code>)!</b>\n\n{text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 @router.message(Command("logs"))

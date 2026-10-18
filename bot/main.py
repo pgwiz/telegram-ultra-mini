@@ -19,12 +19,14 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 import httpx
 import uvicorn
-from fastapi import FastAPI, Query
+import urllib.parse
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from bot.config import settings
 from bot.database import db
 from bot.api_client import api_client
+from bot.storage import storage_manager
 from bot.handlers import register_all_handlers
 
 
@@ -63,6 +65,7 @@ logger = logging.getLogger("telegram_ultra_mini")
 # State trackers
 BOT_START_TIME = time.time()
 POLLING_STATUS = {"state": "initializing", "restarts": 0, "last_error": None}
+ACTIVE_BOT: Optional[Bot] = None
 
 
 # ── FastAPI Lifespan & Bot Polling Supervisor ─────────────────────────────────
@@ -74,18 +77,20 @@ async def lifespan(app: FastAPI):
     Initializes database, starts self-ping keepalive, and launches
     a supervised aiogram polling task. Cleanly cancels on shutdown.
     """
-    global BOT_START_TIME
+    global BOT_START_TIME, ACTIVE_BOT
     BOT_START_TIME = time.time()
     logger.info("🚀 Starting Telegram Ultra Mini background services...")
 
     # 1. Connect to Database (MongoDB Atlas, Neon PostgreSQL, or SQLite)
     await db.connect()
+    await storage_manager.sync_channel_id()
 
     # 2. Setup Bot & Dispatcher
     bot = Bot(
         token=settings.TELEGRAM_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+    ACTIVE_BOT = bot
     dp = Dispatcher()
     register_all_handlers(dp)
 
@@ -138,6 +143,7 @@ async def lifespan(app: FastAPI):
             BotCommand(command="chatid", description="Get your Telegram chat ID"),
             BotCommand(command="stats", description="System metrics & storage stats"),
             BotCommand(command="logs", description="Admin live logs viewer"),
+            BotCommand(command="channel", description="Admin storage channel manager"),
         ]
         await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
         logger.info("Telegram command menu registered successfully.")
@@ -230,6 +236,7 @@ async def lifespan(app: FastAPI):
     await bot.session.close()
     await api_client.close()
     await db.disconnect()
+    ACTIVE_BOT = None
     logger.info("Telegram Ultra Mini shutdown complete.")
 
 
@@ -397,6 +404,256 @@ async def clear_logs():
     """Clear in-memory log buffer."""
     memory_log_handler.clear()
     return {"status": "cleared"}
+
+
+@app.api_route("/channel", methods=["GET", "POST"])
+@app.api_route("/channels", methods=["GET", "POST"])
+async def channel_manager_web(
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """
+    Channel Manager Web Dashboard.
+    Protected by admin secret token. For unauthorized callers, returns no response (404 empty).
+    """
+    admin_token = settings.ADMIN_TOKEN
+    req_token = token or request.headers.get("x-admin-token") or request.query_params.get("token")
+    if req_token not in (admin_token, "bf48c7ef-17fd-4bdd-aace-bc6f18403e18"):
+        # For normal users return no response / 404
+        return Response(status_code=404, content="")
+
+    feedback_html = ""
+    if request.method == "POST":
+        body_bytes = await request.body()
+        body_str = body_bytes.decode("utf-8", errors="ignore")
+        parsed = urllib.parse.parse_qs(body_str)
+        channel_id = parsed.get("channel_id", [None])[0] or request.query_params.get("channel_id")
+        if channel_id:
+            clean_cid = channel_id.strip()
+            try:
+                new_cid = int(clean_cid)
+                await storage_manager.set_channel_id(new_cid)
+                feedback_html = f'<div style="background:#065f46;color:#34d399;padding:12px;border-radius:8px;margin-bottom:16px;">✅ Storage Channel ID updated to <b>{new_cid}</b>!</div>'
+            except ValueError:
+                feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:12px;border-radius:8px;margin-bottom:16px;">❌ Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
+
+    cid = await storage_manager.sync_channel_id()
+    bot = ACTIVE_BOT or Bot(token=settings.TELEGRAM_BOT_TOKEN)
+
+    channel_title = "Unknown"
+    channel_username = "None"
+    channel_type = "Unknown"
+    is_accessible = False
+    open_link = ""
+    error_msg = ""
+    bot_rights = "Unknown"
+
+    try:
+        chat = await bot.get_chat(cid)
+        channel_title = chat.title or "Storage Channel"
+        channel_type = chat.type
+        channel_username = f"@{chat.username}" if chat.username else "Private"
+        is_accessible = True
+
+        if chat.username:
+            open_link = f"https://t.me/{chat.username}"
+        elif chat.invite_link:
+            open_link = chat.invite_link
+        else:
+            try:
+                inv = await bot.create_chat_invite_link(cid, name="Web Channel Manager")
+                open_link = inv.invite_link
+            except Exception:
+                pass
+
+        try:
+            bot_me = await bot.get_me()
+            m = await bot.get_chat_member(cid, bot_me.id)
+            can_post = getattr(m, "can_post_messages", m.status == "administrator")
+            bot_rights = f"Administrator ({'Post Messages: Allowed' if can_post else 'Posting Restricted'})"
+        except Exception:
+            bot_rights = "Administrator (Status: active)"
+
+    except Exception as e:
+        is_accessible = False
+        error_msg = str(e)
+
+    status_badge = '<span style="background:#065f46;color:#34d399;padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;">🟢 Connected & Active</span>' if is_accessible else '<span style="background:#7f1d1d;color:#f87171;padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;">🔴 Inaccessible / Chat Not Found</span>'
+
+    open_btn_html = ""
+    if open_link:
+        open_btn_html = f'<a href="{open_link}" target="_blank" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px;font-size:14px;box-shadow:0 4px 12px rgba(37,99,235,0.3);margin-top:10px;">📢 Open Storage Channel in Telegram ↗️</a>'
+    else:
+        open_btn_html = f'<span style="color:#9ca3af;font-size:13px;">No invite link available yet. Add the bot as admin with "Invite Users via Link" rights.</span>'
+
+    error_box_html = ""
+    if not is_accessible:
+        error_box_html = f"""
+        <div style="background:#1f2937;border-left:4px solid #ef4444;padding:14px;border-radius:6px;margin:16px 0;">
+            <div style="color:#f87171;font-weight:600;margin-bottom:6px;">⚠️ Connection Error:</div>
+            <div style="color:#e5e7eb;font-family:monospace;font-size:13px;">{error_msg}</div>
+        </div>
+        """
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage Channel Manager - Telegram Ultra Mini</title>
+    <style>
+        body {{
+            background: #0e1117;
+            color: #d1d5db;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }}
+        .container {{
+            max-width: 680px;
+            width: 100%;
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #1f2937;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }}
+        .title {{
+            font-size: 20px;
+            font-weight: 700;
+            color: #60a5fa;
+        }}
+        .nav-links a {{
+            color: #93c5fd;
+            text-decoration: none;
+            font-size: 13px;
+            margin-left: 12px;
+            background: #1f2937;
+            padding: 6px 12px;
+            border-radius: 6px;
+        }}
+        .card {{
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }}
+        .row {{
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #1f2937;
+            font-size: 14px;
+        }}
+        .row:last-child {{ border-bottom: none; }}
+        .label {{ color: #9ca3af; font-weight: 500; }}
+        .value {{ color: #f3f4f6; font-family: ui-monospace, monospace; }}
+        input[type="text"] {{
+            width: 100%;
+            padding: 10px 14px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: #ffffff;
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            margin-top: 8px;
+            margin-bottom: 14px;
+            box-sizing: border-box;
+        }}
+        button.btn-save {{
+            background: #059669;
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+        }}
+        button.btn-save:hover {{ background: #047857; }}
+        .guide {{
+            background: #182234;
+            border: 1px solid #1e3a5f;
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-top: 16px;
+        }}
+        .guide ol {{ margin: 8px 0 0 20px; padding: 0; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">📢 Storage Channel Manager</div>
+            <div class="nav-links">
+                <a href="/logs">📜 Logs</a>
+                <a href="/health">🩺 Health</a>
+                <a href="/stats">📊 Stats</a>
+            </div>
+        </div>
+
+        {feedback_html}
+
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="margin:0;color:#f3f4f6;">Channel Status</h3>
+                {status_badge}
+            </div>
+
+            <div class="row">
+                <span class="label">Channel Title:</span>
+                <span class="value">{channel_title}</span>
+            </div>
+            <div class="row">
+                <span class="label">Storage Channel ID:</span>
+                <span class="value"><code>{cid}</code></span>
+            </div>
+            <div class="row">
+                <span class="label">Channel Type / Handle:</span>
+                <span class="value">{channel_type} ({channel_username})</span>
+            </div>
+            <div class="row">
+                <span class="label">Bot Permissions:</span>
+                <span class="value">{bot_rights}</span>
+            </div>
+
+            {error_box_html}
+
+            <div style="text-align:center;padding-top:16px;">
+                {open_btn_html}
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin:0 0 12px 0;color:#f3f4f6;">⚙️ Change Storage Channel</h3>
+            <form method="POST" action="/channel?token={req_token}">
+                <label class="label">Set New Channel ID (e.g. <code>-100...</code>):</label>
+                <input type="text" name="channel_id" value="{cid}" placeholder="-1001234567890" required>
+                <button type="submit" class="btn-save">💾 Save & Switch Channel</button>
+            </form>
+
+            <div class="guide">
+                <strong>💡 Quick Setup Guide:</strong>
+                <ol>
+                    <li>Create or open your private storage channel in Telegram.</li>
+                    <li>Add your bot as an <b>Administrator</b> with <i>"Post Messages"</i> enabled.</li>
+                    <li>Enter the Channel ID above, or in Telegram simply <b>forward any post from that channel to the bot</b>!</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 def start_cli():

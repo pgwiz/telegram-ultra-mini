@@ -23,6 +23,21 @@ class StorageManager:
     def __init__(self):
         self.channel_id = settings.STORAGE_CHANNEL_ID
 
+    async def sync_channel_id(self) -> int:
+        """Sync channel_id from database setting if dynamically updated."""
+        val = await db.get_setting("storage_channel_id")
+        if val:
+            try:
+                self.channel_id = int(val)
+            except ValueError:
+                pass
+        return self.channel_id
+
+    async def set_channel_id(self, new_id: int) -> bool:
+        """Update and persist new storage channel ID."""
+        self.channel_id = int(new_id)
+        return await db.set_setting("storage_channel_id", str(new_id))
+
     async def get_cached(self, track_id: str, quality: str) -> Optional[Dict[str, Any]]:
         """Check if track at specified quality already exists in storage."""
         return await db.get_cached_track(track_id, quality)

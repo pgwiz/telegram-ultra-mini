@@ -170,6 +170,67 @@ class TestPlaylistBatch(unittest.IsolatedAsyncioTestCase):
             if os.path.exists(tf_path):
                 os.remove(tf_path)
 
+    async def test_bot_settings_persistence(self):
+        """Verify dynamic setting storage and storage_manager syncing."""
+        from bot.database import Database
+        from bot.storage import StorageManager
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        test_db = Database()
+        test_db.db_url = f"sqlite:///{temp_db}"
+        await test_db.connect()
+
+        try:
+            # 1. Test set and get
+            await test_db.set_setting("storage_channel_id", "-1009988776655")
+            val = await test_db.get_setting("storage_channel_id")
+            self.assertEqual(val, "-1009988776655")
+
+            # 2. Test fallback default
+            missing = await test_db.get_setting("non_existent_key", default="default_val")
+            self.assertEqual(missing, "default_val")
+        finally:
+            await test_db.disconnect()
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
+
+    async def test_channel_manager_web_security(self):
+        """Verify /channel returns 404 (no response) for normal users and 200 for admin token."""
+        from httpx import AsyncClient, ASGITransport
+        from bot.main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Normal user without token -> 404 (no response)
+            resp_no_token = await client.get("/channel")
+            self.assertEqual(resp_no_token.status_code, 404)
+
+            # 2. Normal user with wrong token -> 404 (no response)
+            resp_wrong_token = await client.get("/channel?token=fake_random_token")
+            self.assertEqual(resp_wrong_token.status_code, 404)
+
+            # 3. Admin user with valid token -> 200 and dashboard HTML
+            resp_admin = await client.get("/channel?token=bf48c7ef-17fd-4bdd-aace-bc6f18403e18")
+            self.assertEqual(resp_admin.status_code, 200)
+            self.assertIn("Storage Channel Manager", resp_admin.text)
+            self.assertIn("Channel Status", resp_admin.text)
+
+    async def test_channel_command_silent_for_normal_users(self):
+        """Verify /channel and /channels command returns no response for normal non-admin users."""
+        from unittest.mock import AsyncMock, MagicMock
+        from bot.handlers.admin import handle_channels_command
+
+        mock_bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.from_user.id = 999999999  # Normal user, definitely not admin
+
+        await handle_channels_command(mock_msg, mock_bot)
+        # Verify message.answer was NEVER called (silent / no response)
+        mock_msg.answer.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
