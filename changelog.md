@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserves zero-disk footprint by immediately unlinking local temp audio/video files in both direct and channel pathways.
 - **Automated Fallback Test Suite:**
   - Added `test_upload_and_cache_direct_user_fallback` to `test_playlist_integration.py` validating simulated `chat not found` exceptions, direct-to-user fallback routing, and instant disk unlinking.
+- **Search Query HTML Entity Sanitization:**
+  - Applied `html.escape` to search queries and results in `bot/handlers/search.py`, preventing `TelegramBadRequest` ("can't parse entities") when users input text with unescaped angle brackets or special symbols.
 
 ## [1.5.6] - 2026-10-18
 

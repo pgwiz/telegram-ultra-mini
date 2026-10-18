@@ -1,5 +1,6 @@
 """Search handler using ytsp-api search endpoint."""
 
+import html
 import hashlib
 import logging
 from typing import Tuple, List, Dict, Any
@@ -16,8 +17,9 @@ router = Router(name="search")
 
 def build_search_view(query: str, results: List[Dict[str, Any]], q_hash: str) -> Tuple[str, InlineKeyboardMarkup]:
     """Build the track list message and interactive track selection buttons."""
+    safe_q = html.escape(query[:64])
     text_lines = [
-        f"🔍 <b>Search results for:</b> <i>{query}</i>\n"
+        f"🔍 <b>Search results for:</b> <i>{safe_q}</i>\n"
     ]
     buttons = []
 
@@ -31,7 +33,9 @@ def build_search_view(query: str, results: List[Dict[str, Any]], q_hash: str) ->
             continue
 
         dur_str = f" ({duration})" if duration else ""
-        text_lines.append(f"{idx}. <b>{title}</b> - <i>{artist}</i>{dur_str}")
+        safe_title = html.escape(title)
+        safe_artist = html.escape(artist)
+        text_lines.append(f"{idx}. <b>{safe_title}</b> - <i>{safe_artist}</i>{dur_str}")
 
         display_title = title if len(title) <= 32 else f"{title[:29]}..."
         buttons.append([
@@ -67,12 +71,19 @@ async def execute_search(message: Message, query: str) -> None:
         await message.answer("⚠️ <b>Rate limit exceeded.</b> Please wait a moment before searching again.", parse_mode="HTML")
         return
 
-    status_msg = await message.answer(f"🔍 <i>Searching for:</i> <b>{query}</b>...", parse_mode="HTML")
+    safe_query = html.escape(query[:64])
+    try:
+        status_msg = await message.answer(f"🔍 <i>Searching for:</i> <b>{safe_query}</b>...", parse_mode="HTML")
+    except Exception:
+        status_msg = await message.answer(f"🔍 Searching for: {query[:64]}...")
 
     try:
-        results = await api_client.search_tracks(query, limit=6)
+        results = await api_client.search_tracks(query[:128], limit=6)
         if not results:
-            await status_msg.edit_text(f"❌ No tracks found for <b>{query}</b>.", parse_mode="HTML")
+            try:
+                await status_msg.edit_text(f"❌ No tracks found for <b>{safe_query}</b>.", parse_mode="HTML")
+            except Exception:
+                await status_msg.edit_text(f"❌ No tracks found for {query[:64]}.")
             return
 
         q_hash = hashlib.md5(query.strip().lower().encode("utf-8")).hexdigest()[:8]
@@ -80,8 +91,21 @@ async def execute_search(message: Message, query: str) -> None:
         await cache.set(f"search_session:{q_hash}", {"query": query, "results": results}, ttl_seconds=3600)
 
         msg_text, keyboard = build_search_view(query, results, q_hash)
-        await status_msg.edit_text(msg_text, reply_markup=keyboard, parse_mode="HTML")
+        try:
+            await status_msg.edit_text(msg_text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            # Fallback without HTML formatting if entities ever conflict
+            plain_lines = [f"Search results for: {query[:64]}\n"]
+            for idx, item in enumerate(results, 1):
+                t = item.get("title") or "Unknown"
+                a = item.get("artist") or "Unknown"
+                plain_lines.append(f"{idx}. {t} - {a}")
+            plain_lines.append("\nTap a track below:")
+            await status_msg.edit_text("\n".join(plain_lines), reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Search error for query '{query}': {e}")
-        await status_msg.edit_text("❌ An error occurred while searching. Please try again.")
+        try:
+            await status_msg.edit_text("❌ An error occurred while searching. Please try again.")
+        except Exception:
+            pass
