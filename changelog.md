@@ -5,6 +5,26 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-10-21
+
+### Fixed & Optimized
+- **Complete Elimination of Session & Socket Leaks:**
+  - Resolved `ResourceWarning: Unclosed client session` in `bot/main.py` (`channel_manager_web`) by safely closing temporary `Bot` client sessions (`await bot.session.close()`) in a `finally` block when `ACTIVE_BOT` is not running.
+- **Ultra-Low RAM Streaming Downloads:**
+  - Replaced in-memory buffering (`resp.content`) in `_download_via_api` (`bot/downloader.py`) with 64KB chunk-by-chunk streaming directly to disk (`dl_client.stream`).
+  - Added on-the-fly MP3 header validation on the initial chunk, cutting per-download heap memory consumption from up to 50MB down to <64KB.
+- **Zombie Process & Hanging Thread Prevention:**
+  - Added 45-second timeout and process reaping (`proc.kill()` and `await proc.wait()`) for `yt-dlp` flat playlist extraction in `bot/api_client.py`.
+  - Reaped zombie subprocesses in ffmpeg transcode on timeout.
+  - Added `socket_timeout: 30` to yt-dlp fallback options in `bot/downloader.py` to prevent thread hangs on network stalls.
+- **Unbounded Playlist Session Leak Prevention:**
+  - Reduced `ACTIVE_SESSIONS` TTL from 2 hours (7200s) to 15 minutes (900s) and enforced a hard cap of 50 active sessions, proactively purging oldest entries.
+  - Added immediate cleanup of track metadata lists (`session.tracks.clear()`) upon session completion, stop, or eviction, freeing large dictionary graphs from RAM.
+  - Automatically cleaned up finished or cancelled pre-fetched files when a batch is stopped early by user.
+- **Automated Memory & Cache Maintenance:**
+  - Added a 10-minute periodic maintenance background loop in `FastAPI` lifespan to automatically sweep stale temporary files (`max_age_secs=300`), evict expired playlist sessions, expire in-memory `TTLCache` keys, and run garbage collection (`gc.collect()`).
+  - Enhanced `/cleanup` admin command to purge expired sessions and force garbage collection.
+
 ## [1.6.2] - 2026-10-18
 
 ### Changed

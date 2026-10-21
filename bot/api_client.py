@@ -218,8 +218,18 @@ class StreamApiClient:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
-                    if proc.returncode == 0:
+                    try:
+                        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=45.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"yt-dlp playlist extraction timed out for {identifier}")
+                        try:
+                            proc.kill()
+                            await proc.wait()
+                        except Exception:
+                            pass
+                        stdout = b""
+
+                    if proc.returncode == 0 and stdout:
                         yt_data = json.loads(stdout.decode(errors="ignore"))
                         title = yt_data.get("title") or "YouTube Playlist"
                         author = yt_data.get("uploader") or yt_data.get("channel") or "YouTube"

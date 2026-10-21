@@ -65,11 +65,21 @@ ACTIVE_SESSIONS: Dict[str, PlaylistSession] = {}
 
 
 def cleanup_old_sessions() -> None:
-    """Purge sessions older than 2 hours."""
+    """Purge sessions older than 15 minutes (900s) or cap at 50 sessions to save RAM."""
     now = time.time()
-    expired = [sid for sid, s in ACTIVE_SESSIONS.items() if now - s.created_at > 7200]
+    expired = [sid for sid, s in ACTIVE_SESSIONS.items() if now - s.created_at > 900]
     for sid in expired:
-        ACTIVE_SESSIONS.pop(sid, None)
+        s = ACTIVE_SESSIONS.pop(sid, None)
+        if s and hasattr(s, "tracks"):
+            s.tracks.clear()
+
+    # If still > 50 sessions, evict oldest
+    if len(ACTIVE_SESSIONS) > 50:
+        sorted_sids = sorted(ACTIVE_SESSIONS.keys(), key=lambda k: ACTIVE_SESSIONS[k].created_at)
+        for sid in sorted_sids[: len(ACTIVE_SESSIONS) - 50]:
+            s = ACTIVE_SESSIONS.pop(sid, None)
+            if s and hasattr(s, "tracks"):
+                s.tracks.clear()
 
 
 def build_batch_keyboard(session: PlaylistSession) -> InlineKeyboardMarkup:
@@ -740,6 +750,18 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
             if session.status == "stopped":
                 if next_fetch_task and not next_fetch_task.done():
                     next_fetch_task.cancel()
+                elif next_fetch_task and next_fetch_task.done():
+                    try:
+                        res = next_fetch_task.result()
+                        if isinstance(res, dict):
+                            f_p = res.get("file_path")
+                            th_p = res.get("thumb_path")
+                            if f_p and os.path.exists(f_p):
+                                os.remove(f_p)
+                            if th_p and os.path.exists(th_p):
+                                os.remove(th_p)
+                    except Exception:
+                        pass
                 break
 
             # Advance pipeline: current task becomes next task
@@ -781,4 +803,8 @@ async def run_playlist_download(session: PlaylistSession, bot: Bot, status_msg: 
         except Exception:
             pass
     finally:
+        try:
+            session.tracks.clear()
+        except Exception:
+            pass
         ACTIVE_SESSIONS.pop(session.session_id, None)

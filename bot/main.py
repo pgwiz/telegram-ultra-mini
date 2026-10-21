@@ -199,12 +199,37 @@ async def lifespan(app: FastAPI):
             except asyncio.TimeoutError:
                 pass
 
+    # 7. Periodic Maintenance & Garbage Collection Loop
+    async def periodic_maintenance():
+        """Runs every 10 minutes to sweep stale files, purge expired sessions, and release RAM."""
+        from bot.downloader import downloader
+        from bot.handlers.playlist import cleanup_old_sessions
+        from bot.cache import cache
+        import gc
+        while not supervisor_stop.is_set():
+            try:
+                await asyncio.wait_for(supervisor_stop.wait(), timeout=600.0)  # 10 minutes
+                break
+            except asyncio.TimeoutError:
+                pass
+
+            try:
+                stale_cleaned = downloader.clean_stale_files(max_age_secs=300)
+                cleanup_old_sessions()
+                if hasattr(cache, "_ram_cache") and hasattr(cache._ram_cache, "expire"):
+                    cache._ram_cache.expire()
+                collected = gc.collect()
+                logger.debug(f"🧹 Periodic maintenance: cleaned {stale_cleaned} stale files, gc collected {collected} objects.")
+            except Exception as e:
+                logger.debug(f"Periodic maintenance notice: {e}")
+
     supervisor_task = asyncio.create_task(polling_supervisor())
     keepalive_task = asyncio.create_task(render_keepalive())
+    maintenance_task = asyncio.create_task(periodic_maintenance())
 
     yield
 
-    # 7. Graceful Shutdown
+    # 8. Graceful Shutdown
     logger.info("🛑 Shutting down Telegram Ultra Mini background services...")
     supervisor_stop.set()
 
@@ -228,8 +253,9 @@ async def lifespan(app: FastAPI):
 
     supervisor_task.cancel()
     keepalive_task.cancel()
+    maintenance_task.cancel()
     try:
-        await asyncio.gather(supervisor_task, keepalive_task, return_exceptions=True)
+        await asyncio.gather(supervisor_task, keepalive_task, maintenance_task, return_exceptions=True)
     except Exception:
         pass
 
@@ -462,7 +488,12 @@ async def channel_manager_web(
                     feedback_html = '<div style="background:#7f1d1d;color:#f87171;padding:10px 14px;border-radius:2px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Invalid Channel ID. Must be an integer like <code>-100...</code></div>'
 
     cid = await storage_manager.sync_channel_id()
-    bot = ACTIVE_BOT or Bot(token=settings.TELEGRAM_BOT_TOKEN)
+    created_temp_bot = False
+    if ACTIVE_BOT is not None:
+        bot = ACTIVE_BOT
+    else:
+        bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+        created_temp_bot = True
 
     channel_title = "Unknown"
     channel_username = "None"
@@ -501,6 +532,12 @@ async def channel_manager_web(
     except Exception as e:
         is_accessible = False
         error_msg = str(e)
+    finally:
+        if created_temp_bot:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
 
     db_stats = {}
     try:

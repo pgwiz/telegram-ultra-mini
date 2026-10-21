@@ -189,8 +189,15 @@ async def handle_cleanup(message: Message):
     # 2. Clean expired DB cache
     db_cache_purged = await db.cleanup_expired_cache()
 
-    # 3. Clear RAM cache
+    # 3. Clear RAM cache and sweep expired sessions & garbage
     cache.clear_ram()
+    try:
+        from bot.handlers.playlist import cleanup_old_sessions
+        import gc
+        cleanup_old_sessions()
+        gc.collect()
+    except Exception:
+        pass
 
     mb_freed = bytes_freed / (1024 * 1024)
     result_text = (

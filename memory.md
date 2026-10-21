@@ -90,6 +90,13 @@
   - If `STORAGE_CHANNEL_ID` is inaccessible (`TelegramBadRequest: chat not found`), uploads fall back seamlessly to direct user delivery without breaking batch pipelines.
   - If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
 
+- **Memory Management & Anti-Leak Architecture:**
+  - **Zero-Buffering Streaming:** Pre-packaged MP3 and proxy stream downloads use `httpx.AsyncClient.stream()` with 64KB chunk writes to disk. Avoids holding 10MB–50MB files in RAM heap, reducing per-download RAM overhead to <64KB.
+  - **Socket & ClientSession Safety:** Temporary `Bot` instances created for web management dashboard requests explicitly close `bot.session` in a `finally` block, completely eliminating `AiohttpSession` and TCP connector leaks.
+  - **Zombie Process Reaping:** All `yt-dlp` and `ffmpeg` subprocesses enforce timeouts (45s–90s) with explicit `proc.kill()` and `await proc.wait()` to reap child processes from system process tables.
+  - **Bounded State & TTL:** `ACTIVE_SESSIONS` strictly expires sessions after 15 minutes (900s) with a hard cap of 50 concurrent sessions. On session stop or completion, `session.tracks.clear()` is immediately executed to release large track metadata dicts.
+  - **Automated Sweeping:** A background maintenance loop in the FastAPI lifespan fires every 10 minutes to unlink abandoned temp files (`max_age_secs=300`), evict expired playlist sessions, expire in-memory `TTLCache` keys, and call `gc.collect()`.
+
 ## Repositories
 - Public: `https://github.com/pgwiz/telegram-ultra-mini.git`
 - Private: `https://github.com/WiPTechg/telegram-ultra-mini.git`

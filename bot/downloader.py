@@ -124,26 +124,40 @@ class Downloader:
                         logger.info(f"Downloading pre-packaged MP3 from API: {full_dl_url}")
                         timeout = httpx.Timeout(connect=15.0, read=90.0, write=30.0, pool=30.0)
                         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as dl_client:
-                            resp = await dl_client.get(full_dl_url)
-                            if resp.status_code == 200 and len(resp.content) > 1000:
-                                # Verify MP3 header (starts with ID3 or MPEG sync frames)
-                                if resp.content[:3] == b"ID3" or resp.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+                            async with dl_client.stream("GET", full_dl_url) as stream_resp:
+                                if stream_resp.status_code == 200:
+                                    first_chunk = True
+                                    is_valid_mp3 = False
                                     with open(file_path, "wb") as f:
-                                        f.write(resp.content)
-                                    raw_title = first_file.get("name", "Audio Track").replace(".mp3", "")
-                                    parts = raw_title.split(" - ", 1)
-                                    artist = parts[0].strip() if len(parts) > 1 else "Unknown Artist"
-                                    title = parts[1].strip() if len(parts) > 1 else raw_title
-                                    metadata = {
-                                        "title": title,
-                                        "artist": artist,
-                                        "duration": 0,
-                                        "videoId": identifier,
-                                        "source": "api_download",
-                                        "is_video": False,
-                                        "quality": quality
-                                    }
-                                    return file_path, None, metadata
+                                        async for chunk in stream_resp.aiter_bytes(chunk_size=65536):
+                                            if first_chunk:
+                                                first_chunk = False
+                                                if len(chunk) >= 3 and (chunk[:3] == b"ID3" or chunk[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
+                                                    is_valid_mp3 = True
+                                                else:
+                                                    break
+                                            f.write(chunk)
+                                    if is_valid_mp3 and os.path.exists(file_path) and os.path.getsize(file_path) > 1000:
+                                        raw_title = first_file.get("name", "Audio Track").replace(".mp3", "")
+                                        parts = raw_title.split(" - ", 1)
+                                        artist = parts[0].strip() if len(parts) > 1 else "Unknown Artist"
+                                        title = parts[1].strip() if len(parts) > 1 else raw_title
+                                        metadata = {
+                                            "title": title,
+                                            "artist": artist,
+                                            "duration": 0,
+                                            "videoId": identifier,
+                                            "source": "api_download",
+                                            "is_video": False,
+                                            "quality": quality
+                                        }
+                                        return file_path, None, metadata
+                                    else:
+                                        if os.path.exists(file_path):
+                                            try:
+                                                os.remove(file_path)
+                                            except Exception:
+                                                pass
             except Exception as dl_err:
                 logger.warning(f"Pre-packaged /download attempt skipped/failed: {dl_err}")
 
@@ -245,6 +259,7 @@ class Downloader:
                                     logger.warning("ffmpeg transcode timed out (45s). Terminating process...")
                                     try:
                                         proc.kill()
+                                        await proc.wait()
                                     except Exception:
                                         pass
 
@@ -315,6 +330,7 @@ class Downloader:
                 'writethumbnail': False,
                 'quiet': True,
                 'no_warnings': True,
+                'socket_timeout': 30,
             }
         else:
             ydl_opts = {
@@ -328,6 +344,7 @@ class Downloader:
                 'writethumbnail': False,
                 'quiet': True,
                 'no_warnings': True,
+                'socket_timeout': 30,
             }
 
         def run_ytdlp():
