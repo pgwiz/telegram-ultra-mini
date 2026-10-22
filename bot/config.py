@@ -90,7 +90,7 @@ class Settings(BaseSettings):
 
     # Cache Settings
     ENABLE_MEMORY_CACHE: bool = Field(True, description="Enable RAM cache")
-    MEMORY_CACHE_MAXSIZE: int = Field(2000, description="Max items in memory cache")
+    MEMORY_CACHE_MAXSIZE: int = Field(500, description="Max items in memory cache")
     MEMORY_CACHE_TTL_SECS: int = Field(3600, description="RAM cache TTL in seconds")
     DB_METADATA_TTL_DAYS: int = Field(7, description="Metadata cache TTL in days")
     DB_SEARCH_TTL_HOURS: int = Field(24, description="Search cache TTL in hours")

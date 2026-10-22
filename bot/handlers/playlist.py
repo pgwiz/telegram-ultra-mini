@@ -207,19 +207,22 @@ async def start_playlist_flow(message: Message, bot: Bot, platform: str, identif
         )
         ACTIVE_SESSIONS[session_id] = session
 
-        # Quick pre-scan for tracks already in database cache (parallelized)
+        # Quick pre-scan for tracks already in database cache (throttled to 10 concurrent DB queries)
+        db_sem = asyncio.Semaphore(10)
+
         async def _check_track(t):
-            try:
-                t_title = t.get("title") or t.get("name")
-                t_artist = t.get("artist") or t.get("subtitle")
-                t_vid = t.get("videoId")
-                cached = await storage_manager.find_cached(track_id=t_vid, title=t_title, artist=t_artist, quality="audio_high")
-                if cached:
-                    t["cached_info"] = cached
-                    return True
-            except Exception:
-                pass
-            return False
+            async with db_sem:
+                try:
+                    t_title = t.get("title") or t.get("name")
+                    t_artist = t.get("artist") or t.get("subtitle")
+                    t_vid = t.get("videoId")
+                    cached = await storage_manager.find_cached(track_id=t_vid, title=t_title, artist=t_artist, quality="audio_high")
+                    if cached:
+                        t["cached_info"] = cached
+                        return True
+                except Exception:
+                    pass
+                return False
 
         check_results = await asyncio.gather(*[_check_track(t) for t in tracks], return_exceptions=True)
         existing_in_db = sum(1 for r in check_results if r is True)
@@ -262,6 +265,10 @@ async def handle_start_playlist_batch(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ Session expired. Please send the playlist link again.", show_alert=True)
         return
 
+    if session.status != "menu":
+        await callback.answer("⏳ Batch is already processing.", show_alert=False)
+        return
+
     if callback.from_user.id != session.user_id:
         await callback.answer("⚠️ This playlist menu belongs to another user.", show_alert=True)
         return
@@ -298,8 +305,8 @@ async def handle_start_playlist_batch(callback: CallbackQuery, bot: Bot):
     )
     await callback.answer()
 
-    # Launch batch execution in background task
-    asyncio.create_task(run_playlist_download(session, bot, callback.message))
+    # Launch batch execution in background task and attach task to session
+    session.task = asyncio.create_task(run_playlist_download(session, bot, callback.message))
 
 
 @router.callback_query(F.data.startswith("pl:act:"))
@@ -353,7 +360,7 @@ async def handle_stop_playlist(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("pl:cancel:"))
 async def handle_cancel_playlist(callback: CallbackQuery):
-    """Cancel playlist before starting."""
+    """Cancel playlist before starting and immediately free session track memory."""
     parts = callback.data.split(":")
     if len(parts) < 3:
         await callback.answer()
@@ -361,9 +368,14 @@ async def handle_cancel_playlist(callback: CallbackQuery):
 
     session_id = parts[2]
     session = ACTIVE_SESSIONS.pop(session_id, None)
-    if session and callback.from_user.id != session.user_id:
-        await callback.answer("⚠️ Not your session.", show_alert=True)
-        return
+    if session:
+        try:
+            session.tracks.clear()
+        except Exception:
+            pass
+        if callback.from_user.id != session.user_id:
+            await callback.answer("⚠️ Not your session.", show_alert=True)
+            return
 
     await callback.message.edit_text("❌ <i>Playlist download cancelled.</i>", parse_mode="HTML")
     await callback.answer("Cancelled")

@@ -299,7 +299,8 @@ class Downloader:
 
                 except Exception as stream_err:
                     logger.warning(f"Stream proxy download failed: {stream_err}")
-                    if os.path.exists(temp_raw_path):
+                finally:
+                    if temp_raw_path and os.path.exists(temp_raw_path):
                         try:
                             os.remove(temp_raw_path)
                         except Exception:

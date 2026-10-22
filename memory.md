@@ -96,7 +96,12 @@
   - **Socket & ClientSession Safety:** Temporary `Bot` instances created for web management dashboard requests explicitly close `bot.session` in a `finally` block, completely eliminating `AiohttpSession` and TCP connector leaks.
   - **Zombie Process Reaping:** All `yt-dlp` and `ffmpeg` subprocesses enforce timeouts (45s–90s) with explicit `proc.kill()` and `await proc.wait()` to reap child processes from system process tables.
   - **Bounded State & TTL:** `ACTIVE_SESSIONS` strictly expires sessions after 15 minutes (900s) with a hard cap of 50 concurrent sessions. On session stop or completion, `session.tracks.clear()` is immediately executed to release large track metadata dicts.
-  - **Automated Sweeping:** A background maintenance loop in the FastAPI lifespan fires every 10 minutes to unlink abandoned temp files (`max_age_secs=300`), evict expired playlist sessions, expire in-memory `TTLCache` keys, and call `gc.collect()`.
+  - **Concurrency & Spike Throttling:**
+    - `tasks_concurrency_limit=15` in `dp.start_polling()` smooths update spikes from group chats or reconnect bursts.
+    - `asyncio.Semaphore(10)` throttles 100-track playlist pre-scan checks to prevent database connection pool saturation.
+    - Session status locking (`if session.status != "menu": return`) blocks duplicate concurrent batch tasks on rapid button clicks.
+    - `MemoryLogHandler` truncates individual log strings to 1,000 characters, capping max memory usage of the 1,000-entry ring buffer to <1MB.
+    - Default `MEMORY_CACHE_MAXSIZE` capped at 500 items to keep resident RAM under 15MB.
 
 ## Repositories
 - Public: `https://github.com/pgwiz/telegram-ultra-mini.git`

@@ -41,6 +41,8 @@ class MemoryLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):
         try:
             msg = self.format(record)
+            if len(msg) > 1000:
+                msg = msg[:1000] + "..."
             self.buffer.append(msg)
         except Exception:
             pass
@@ -193,7 +195,7 @@ async def lifespan(app: FastAPI):
                     logger.debug(f"Webhook cleanup check notice: {wh_err}")
                     await bot.delete_webhook(drop_pending_updates=True)
 
-                await dp.start_polling(bot, handle_as_tasks=True)
+                await dp.start_polling(bot, handle_as_tasks=True, tasks_concurrency_limit=15)
                 logger.warning("aiogram start_polling exited cleanly. Reconnecting in 3s...")
             except asyncio.CancelledError:
                 logger.info("Polling supervisor task cancelled.")
@@ -293,6 +295,12 @@ async def lifespan(app: FastAPI):
     await bot.session.close()
     await api_client.close()
     await db.disconnect()
+    try:
+        from bot.mtproto import _client as mt_client
+        if mt_client and hasattr(mt_client, "is_connected") and mt_client.is_connected():
+            await mt_client.disconnect()
+    except Exception:
+        pass
     ACTIVE_BOT = None
     logger.info("Telegram Ultra Mini shutdown complete.")
 
