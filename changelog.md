@@ -5,6 +5,14 @@ All notable changes to **Telegram Ultra Mini** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-10-22
+
+### Fixed & Enhanced
+- **Automatic Webhook Conflict Auto-Recovery & Resolution:**
+  - Resolved `TelegramConflictError: Conflict: can't use getUpdates method while webhook is active` on live bot instances where an external platform (e.g. Void Panel) had registered a webhook URL on the bot token.
+  - Added self-healing session middleware (`auto_delete_webhook_middleware` on `bot.session`) in `bot/main.py` that intercepts `TelegramConflictError` exceptions during internal polling, automatically calls `bot.delete_webhook(drop_pending_updates=True)`, and seamlessly retries the `getUpdates` request without dropping into infinite sleep loops.
+  - Enhanced `polling_supervisor()` pre-flight sequence to query `get_webhook_info()` and force-delete any existing webhook before polling begins.
+
 ## [1.6.3] - 2026-10-21
 
 ### Fixed & Optimized

@@ -89,6 +89,7 @@
 - **Emergency Fallback & Channel Inaccessibility Guard:**
   - If `STORAGE_CHANNEL_ID` is inaccessible (`TelegramBadRequest: chat not found`), uploads fall back seamlessly to direct user delivery without breaking batch pipelines.
   - If `ytsp-api` is unreachable and `ENABLE_API_FALLBACK=true`, falls back to local `yt-dlp`.
+  - **Self-Healing Webhook Conflict Auto-Recovery:** Client session middleware (`auto_delete_webhook_middleware` on `bot.session`) intercepts any `TelegramConflictError` caused by external webhook configurations, automatically calls `bot.delete_webhook(drop_pending_updates=True)`, and retries `GetUpdates` on the fly.
 
 - **Memory Management & Anti-Leak Architecture:**
   - **Zero-Buffering Streaming:** Pre-packaged MP3 and proxy stream downloads use `httpx.AsyncClient.stream()` with 64KB chunk writes to disk. Avoids holding 10MB–50MB files in RAM heap, reducing per-download RAM overhead to <64KB.

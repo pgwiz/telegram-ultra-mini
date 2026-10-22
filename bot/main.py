@@ -94,6 +94,27 @@ async def lifespan(app: FastAPI):
     dp = Dispatcher()
     register_all_handlers(dp)
 
+    # Automatically intercept and resolve any TelegramConflictError caused by external webhooks
+    @bot.session.middleware
+    async def auto_delete_webhook_middleware(make_request, bot_instance, method):
+        from aiogram.exceptions import TelegramConflictError
+        from aiogram.methods import DeleteWebhook
+        try:
+            return await make_request(bot_instance, method)
+        except TelegramConflictError as conflict_err:
+            if not isinstance(method, DeleteWebhook) and "webhook" in str(conflict_err).lower():
+                logger.warning(
+                    f"⚠️ TelegramConflictError detected ({conflict_err}). "
+                    "An external webhook was registered! Automatically deleting webhook and recovering polling..."
+                )
+                try:
+                    await bot_instance.delete_webhook(drop_pending_updates=True)
+                    logger.info("✅ Active webhook successfully removed. Retrying request...")
+                    return await make_request(bot_instance, method)
+                except Exception as del_err:
+                    logger.error(f"Failed to auto-delete conflicting webhook: {del_err}")
+            raise
+
     # Add update logging middleware so every incoming message/button is visible in /logs
     @dp.update.outer_middleware
     async def log_update_middleware(handler, event, data):
@@ -159,9 +180,19 @@ async def lifespan(app: FastAPI):
         while not supervisor_stop.is_set():
             try:
                 POLLING_STATUS["state"] = "polling"
-                logger.info("🔄 Starting Telegram bot polling loop (drop_pending_updates=False)...")
-                # Do NOT drop pending updates so messages sent during reboot/deployment are processed!
-                await bot.delete_webhook(drop_pending_updates=False)
+                logger.info("🔄 Starting Telegram bot polling loop...")
+                # Verify and clear any pre-existing or rogue webhook before polling starts
+                try:
+                    wh_info = await bot.get_webhook_info()
+                    if wh_info.url:
+                        logger.warning(f"Found active webhook ({wh_info.url}). Removing before polling...")
+                        await bot.delete_webhook(drop_pending_updates=True)
+                    else:
+                        await bot.delete_webhook(drop_pending_updates=False)
+                except Exception as wh_err:
+                    logger.debug(f"Webhook cleanup check notice: {wh_err}")
+                    await bot.delete_webhook(drop_pending_updates=True)
+
                 await dp.start_polling(bot, handle_as_tasks=True)
                 logger.warning("aiogram start_polling exited cleanly. Reconnecting in 3s...")
             except asyncio.CancelledError:
